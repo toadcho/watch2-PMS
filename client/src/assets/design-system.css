@@ -1,0 +1,375 @@
+/* ============================================================
+   PMS Design System — Global Tokens & Base Styles
+   WBS/일정관리 화면은 자체 스타일 유지, 나머지 화면 공통 적용
+   ============================================================ */
+
+/* ── 1. Design Tokens (CSS Variables) ── */
+:root {
+  /* Colors */
+  --pms-primary: #1976D2;
+  --pms-primary-light: #E3F2FD;
+  --pms-primary-dark: #1565C0;
+  --pms-secondary: #455A64;
+  --pms-success: #2E7D32;
+  --pms-success-light: #E8F5E9;
+  --pms-error: #C62828;
+  --pms-error-light: #FFEBEE;
+  --pms-warning: #EF6C00;
+  --pms-warning-light: #FFF3E0;
+  --pms-info: #0288D1;
+  --pms-info-light: #E1F5FE;
+
+  /* Text */
+  --pms-text-primary: #212121;
+  --pms-text-secondary: #757575;
+  --pms-text-label: #616161;
+  --pms-text-disabled: #9E9E9E;
+  --pms-text-hint: #9E9E9E;
+
+  /* Background & Surface */
+  --pms-bg: #FAFBFC;
+  --pms-surface: #FFFFFF;
+  --pms-surface-variant: #F5F5F5;
+  --pms-surface-hover: #F5F8FF;
+
+  /* Border */
+  --pms-border: #E0E0E0;
+  --pms-border-light: #EEEEEE;
+  --pms-border-dark: #BDBDBD;
+
+  /* Typography */
+  --pms-font-family: 'Roboto', 'Noto Sans KR', sans-serif;
+  --pms-font-title: 15px;
+  --pms-font-subtitle: 13px;
+  --pms-font-body: 12px;
+  --pms-font-label: 11px;
+  --pms-font-caption: 10px;
+  --pms-font-mini: 8px;
+
+  /* Spacing */
+  --pms-space-xs: 4px;
+  --pms-space-sm: 8px;
+  --pms-space-md: 12px;
+  --pms-space-lg: 16px;
+  --pms-space-xl: 24px;
+
+  /* Border Radius */
+  --pms-radius: 4px;
+  --pms-radius-sm: 2px;
+
+  /* Shadows */
+  --pms-shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --pms-shadow-md: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+/* ── 2. Base Typography ── */
+.v-application {
+  font-family: var(--pms-font-family) !important;
+  color: var(--pms-text-primary);
+}
+
+/* ── 3. Global Vuetify Overrides (WBS 제외) ── */
+
+/* 앱 배경 */
+.v-main {
+  background: var(--pms-bg) !important;
+}
+
+/* 카드 기본 */
+.v-card {
+  border-radius: var(--pms-radius) !important;
+}
+
+/* 드롭다운 메뉴 항목 */
+.v-overlay .v-list-item-title {
+  font-size: var(--pms-font-label) !important;
+}
+.v-overlay .v-list-item {
+  min-height: 28px !important;
+}
+
+/* 다이얼로그 */
+.v-dialog .v-card-title {
+  font-size: 13px !important;
+  font-weight: 600;
+}
+.v-dialog .v-card-text {
+  font-size: var(--pms-font-body) !important;
+}
+
+/* 칩 기본 */
+.v-chip {
+  font-weight: 500 !important;
+}
+
+/* 데이터 테이블 */
+.v-data-table {
+  font-size: var(--pms-font-body) !important;
+}
+.v-data-table th {
+  font-size: var(--pms-font-label) !important;
+  font-weight: 600 !important;
+  background: var(--pms-surface-variant) !important;
+  color: var(--pms-text-label) !important;
+}
+.v-data-table td {
+  font-size: var(--pms-font-body) !important;
+  color: var(--pms-text-primary) !important;
+}
+.v-data-table-footer {
+  font-size: var(--pms-font-label) !important;
+}
+.v-data-table-footer .v-field__input {
+  font-size: var(--pms-font-label) !important;
+  min-height: 24px !important;
+}
+
+/* ── 4. Page Layout Classes ── */
+
+/* 페이지 제목 */
+.pms-page-title {
+  font-size: var(--pms-font-title);
+  font-weight: 700;
+  color: var(--pms-text-primary);
+}
+
+/* 프로젝트명 부제 */
+.pms-page-subtitle {
+  font-size: var(--pms-font-label);
+  color: var(--pms-text-secondary);
+  margin-left: 8px;
+}
+
+/* ── 5. Filter Bar Classes ── */
+.pms-filter .v-field {
+  min-height: 28px !important;
+  height: 28px !important;
+}
+.pms-filter .v-field__input {
+  font-size: var(--pms-font-label) !important;
+  padding: 0 8px !important;
+  min-height: 28px !important;
+}
+.pms-filter .v-select__selection-text {
+  font-size: var(--pms-font-label) !important;
+}
+.pms-filter .v-field__append-inner .v-icon {
+  font-size: 16px !important;
+}
+.pms-filter .v-label {
+  font-size: var(--pms-font-label) !important;
+}
+/* 필터용 UserTreePicker 축소 */
+.v-input.pms-filter-picker .v-field {
+  min-height: 28px !important;
+  max-height: 28px !important;
+}
+.v-input.pms-filter-picker .v-field__input {
+  min-height: 28px !important;
+  padding: 0 8px !important;
+  font-size: var(--pms-font-label) !important;
+}
+.v-input.pms-filter-picker .v-field__input input {
+  font-size: var(--pms-font-label) !important;
+}
+.v-input.pms-filter-picker .v-label {
+  font-size: var(--pms-font-label) !important;
+}
+.v-input.pms-filter-picker .v-field__append-inner .v-icon {
+  font-size: 14px !important;
+}
+.v-input.pms-filter-picker {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+.v-input.pms-filter-picker .v-input__details {
+  display: none !important;
+}
+
+/* ── 6. Table Classes ── */
+.pms-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.pms-table th,
+.pms-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--pms-border);
+  font-size: var(--pms-font-body);
+  line-height: 1.3;
+  vertical-align: middle;
+}
+.pms-table th {
+  background: var(--pms-surface-variant);
+  font-weight: 600;
+  font-size: var(--pms-font-label);
+  text-align: center;
+  color: var(--pms-text-label);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  position: relative;
+}
+.pms-table tr:hover {
+  background: var(--pms-surface-hover);
+}
+.pms-table tr {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+/* ── 7. Detail Table Classes ── */
+.pms-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pms-detail-table td,
+.pms-detail-table th {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--pms-border-light);
+  font-size: var(--pms-font-body);
+  line-height: 1.4;
+  vertical-align: top;
+}
+.pms-detail-label {
+  font-weight: 600;
+  background: var(--pms-surface-variant);
+  white-space: nowrap;
+  width: 120px;
+  color: var(--pms-text-label);
+  border-right: 1px solid var(--pms-border-light);
+}
+.pms-detail-value {
+  color: var(--pms-text-primary);
+}
+
+/* ── 8. Form Section Classes ── */
+.pms-card {
+  border: 1px solid var(--pms-border);
+  border-radius: var(--pms-radius);
+  overflow: hidden;
+  background: var(--pms-surface);
+}
+.pms-card-body {
+  padding: 12px 16px;
+}
+.pms-section-header {
+  padding: 8px 16px;
+  font-size: var(--pms-font-subtitle);
+  font-weight: 600;
+  background: var(--pms-surface-variant);
+  border-bottom: 1px solid var(--pms-border);
+  color: var(--pms-text-label);
+}
+
+/* 폼 그룹 헤더 (아이콘 + 색상 라인) */
+.pms-form-group {
+  margin-bottom: 12px;
+}
+.pms-form-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--pms-font-body);
+  font-weight: 600;
+  color: var(--pms-text-label);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+  border-bottom: 2px solid var(--pms-primary);
+}
+.pms-form-group-title .v-icon {
+  color: var(--pms-primary);
+}
+.pms-form-group-title.green {
+  border-bottom-color: var(--pms-success);
+}
+.pms-form-group-title.green .v-icon {
+  color: var(--pms-success);
+}
+.pms-form-group-title.orange {
+  border-bottom-color: var(--pms-warning);
+}
+.pms-form-group-title.orange .v-icon {
+  color: var(--pms-warning);
+}
+.pms-form-group-title.grey {
+  border-bottom-color: var(--pms-secondary);
+}
+.pms-form-group-title.grey .v-icon {
+  color: var(--pms-secondary);
+}
+
+/* 필수 표시 */
+.pms-required {
+  color: var(--pms-error);
+  font-size: var(--pms-font-caption);
+  margin-left: 2px;
+}
+
+/* ── 9. Form Field Overrides ── */
+.pms-form .v-field__input,
+.pms-form .v-label,
+.pms-form .v-select__selection-text,
+.pms-form input,
+.pms-form textarea {
+  font-size: var(--pms-font-body) !important;
+}
+.pms-form .v-messages__message {
+  font-size: var(--pms-font-caption) !important;
+}
+.pms-form .v-input--density-compact .v-field {
+  min-height: 32px;
+}
+
+/* ── 10. Status Color Utilities ── */
+.pms-code {
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--pms-font-label);
+  font-weight: 600;
+  color: var(--pms-primary-dark);
+}
+
+/* ── 11. Tree Panel Classes ── */
+.pms-tree-panel {
+  background: var(--pms-bg);
+  border-right: 1px solid var(--pms-border);
+  display: flex;
+  flex-direction: column;
+}
+.pms-tree-dept:hover {
+  background: rgba(0,0,0,0.03);
+}
+.pms-tree-item {
+  transition: background-color 0.15s;
+  cursor: pointer;
+}
+.pms-tree-item:hover {
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+.pms-tree-selected {
+  background: rgba(var(--v-theme-primary), 0.12) !important;
+}
+.pms-tree-name {
+  font-size: var(--pms-font-body);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 12. Alert / Change Mode ── */
+.pms-alert-info {
+  background: var(--pms-info-light);
+  border-left: 4px solid var(--pms-info);
+  border-radius: var(--pms-radius);
+  padding: 8px 12px;
+  font-size: var(--pms-font-label);
+  color: var(--pms-primary-dark);
+}
+.pms-alert-info .v-field__input,
+.pms-alert-info .v-label,
+.pms-alert-info input,
+.pms-alert-info textarea {
+  font-size: var(--pms-font-body) !important;
+}

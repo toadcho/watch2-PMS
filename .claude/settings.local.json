@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/Pgm/watch2-TMS/server/**)",
+      "Read(//d/Pgm/watch2-TMS/client/**)",
+      "Read(//d/Pgm/watch2-TMS/**)"
+    ]
+  }
+}

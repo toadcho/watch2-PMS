@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="200" viewBox="0 0 1200 200">
+  <defs>
+    <!-- 병무청 공식 색감: 진한 남색 → 청록 그라데이션 -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0D1B3E"/>
+      <stop offset="40%" style="stop-color:#132B5E"/>
+      <stop offset="100%" style="stop-color:#1A4070"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#2196F3;stop-opacity:0.15"/>
+      <stop offset="50%" style="stop-color:#00BCD4;stop-opacity:0.08"/>
+      <stop offset="100%" style="stop-color:#2196F3;stop-opacity:0.15"/>
+    </linearGradient>
+    <linearGradient id="goldLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#C9A84C;stop-opacity:0"/>
+      <stop offset="20%" style="stop-color:#C9A84C;stop-opacity:1"/>
+      <stop offset="80%" style="stop-color:#E8D48B;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#C9A84C;stop-opacity:0"/>
+    </linearGradient>
+    <linearGradient id="textGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#FFFFFF"/>
+      <stop offset="50%" style="stop-color:#E8F4FD"/>
+      <stop offset="100%" style="stop-color:#FFFFFF"/>
+    </linearGradient>
+    <!-- 기하학 패턴 (디지털 느낌) -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+    </pattern>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="10" cy="10" r="0.5" fill="rgba(255,255,255,0.06)"/>
+    </pattern>
+  </defs>
+
+  <!-- 배경 -->
+  <rect width="1200" height="200" fill="url(#bg)"/>
+  <rect width="1200" height="200" fill="url(#grid)"/>
+  <rect width="1200" height="200" fill="url(#dots)"/>
+
+  <!-- 좌측 장식 라인 (디지털 회로 느낌) -->
+  <line x1="0" y1="30" x2="180" y2="30" stroke="rgba(33,150,243,0.2)" stroke-width="1"/>
+  <line x1="0" y1="170" x2="150" y2="170" stroke="rgba(33,150,243,0.2)" stroke-width="1"/>
+  <circle cx="180" cy="30" r="3" fill="rgba(33,150,243,0.3)"/>
+  <circle cx="150" cy="170" r="3" fill="rgba(33,150,243,0.3)"/>
+  <line x1="180" y1="30" x2="180" y2="80" stroke="rgba(33,150,243,0.15)" stroke-width="1"/>
+  <line x1="150" y1="120" x2="150" y2="170" stroke="rgba(33,150,243,0.15)" stroke-width="1"/>
+
+  <!-- 우측 장식 라인 -->
+  <line x1="1020" y1="30" x2="1200" y2="30" stroke="rgba(33,150,243,0.2)" stroke-width="1"/>
+  <line x1="1050" y1="170" x2="1200" y2="170" stroke="rgba(33,150,243,0.2)" stroke-width="1"/>
+  <circle cx="1020" cy="30" r="3" fill="rgba(33,150,243,0.3)"/>
+  <circle cx="1050" cy="170" r="3" fill="rgba(33,150,243,0.3)"/>
+  <line x1="1020" y1="30" x2="1020" y2="80" stroke="rgba(33,150,243,0.15)" stroke-width="1"/>
+  <line x1="1050" y1="120" x2="1050" y2="170" stroke="rgba(33,150,243,0.15)" stroke-width="1"/>
+
+  <!-- 중앙 글로우 효과 -->
+  <ellipse cx="600" cy="100" rx="400" ry="80" fill="url(#accent)"/>
+
+  <!-- 상단 골드 라인 -->
+  <rect x="200" y="48" width="800" height="1.5" fill="url(#goldLine)" rx="1"/>
+
+  <!-- 태극 문양 (대한민국 정부 상징) -->
+  <g transform="translate(105, 100)" opacity="0.12">
+    <circle cx="0" cy="0" r="28" fill="none" stroke="white" stroke-width="1.5"/>
+    <path d="M 0 -14 A 14 14 0 0 1 0 14 A 7 7 0 0 0 0 0 A 7 7 0 0 1 0 -14" fill="white"/>
+    <path d="M 0 14 A 14 14 0 0 1 0 -14 A 7 7 0 0 0 0 0 A 7 7 0 0 1 0 14" fill="rgba(255,255,255,0.4)"/>
+  </g>
+
+  <!-- 우측 방패 아이콘 (병무청 상징) -->
+  <g transform="translate(1095, 100)" opacity="0.12">
+    <path d="M 0 -28 L 22 -16 L 22 8 Q 22 24 0 32 Q -22 24 -22 8 L -22 -16 Z" fill="none" stroke="white" stroke-width="1.5"/>
+    <path d="M -8 -2 L -2 4 L 10 -8" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- 서브 타이틀 (상단) -->
+  <text x="600" y="78" text-anchor="middle" fill="#7EB8E0" font-family="'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" letter-spacing="6">
+    MILITARY MANPOWER ADMINISTRATION
+  </text>
+
+  <!-- 메인 캐치프레이즈 -->
+  <text x="600" y="118" text-anchor="middle" fill="url(#textGlow)" font-family="'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif" font-size="30" font-weight="700" letter-spacing="2">
+    병무행정 디지털 플랫폼 구축 사업의 성공적 완수!!!
+  </text>
+
+  <!-- 하단 서브 라인 -->
+  <text x="600" y="148" text-anchor="middle" fill="#8BACC7" font-family="'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif" font-size="12" font-weight="300" letter-spacing="3">
+    Digital Transformation for Military Administration Platform
+  </text>
+
+  <!-- 하단 골드 라인 -->
+  <rect x="200" y="158" width="800" height="1.5" fill="url(#goldLine)" rx="1"/>
+
+  <!-- 좌측 하단 장식 텍스트 -->
+  <text x="40" y="190" fill="rgba(255,255,255,0.08)" font-family="'Consolas', monospace" font-size="9" letter-spacing="1">WATCH2 PROJECT MANAGEMENT SYSTEM</text>
+
+  <!-- 우측 하단 장식 텍스트 -->
+  <text x="1160" y="190" text-anchor="end" fill="rgba(255,255,255,0.08)" font-family="'Consolas', monospace" font-size="9" letter-spacing="1">2026 DIGITAL PLATFORM</text>
+</svg>

@@ -1,0 +1,39 @@
+{
+  "name": "pms-client",
+  "version": "1.0.0",
+  "description": "공공 SI PMS Frontend - Vue 3 + Vuetify 3",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5174",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "@tiptap/extension-image": "^3.22.0",
+    "@tiptap/extension-link": "^3.22.0",
+    "@tiptap/extension-placeholder": "^3.22.0",
+    "@tiptap/extension-text-align": "^3.22.0",
+    "@tiptap/extension-underline": "^3.22.0",
+    "@tiptap/starter-kit": "^3.22.0",
+    "@tiptap/vue-3": "^3.22.0",
+    "apexcharts": "^5.10.4",
+    "axios": "^1.13.6",
+    "dayjs": "^1.11.13",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.25",
+    "vue-router": "^4.6.4",
+    "vue3-apexcharts": "^1.11.1",
+    "vuetify": "^3.8.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.2",
+    "@vue/tsconfig": "^0.8.1",
+    "sass": "^1.89.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1",
+    "vite-plugin-vuetify": "^2.1.1",
+    "vue-tsc": "^3.1.5"
+  }
+}

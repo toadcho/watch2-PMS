@@ -1,0 +1,138 @@
+services:
+  # PostgreSQL 16
+  db:
+    image: postgres:16-alpine
+    container_name: pms-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: pms
+      POSTGRES_USER: pms_user
+      POSTGRES_PASSWORD: pms_password
+      TZ: Asia/Seoul
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+
+  # Redis 7 (세션/캐시)
+  redis:
+    image: redis:7-alpine
+    container_name: pms-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      - redisdata:/data
+
+  # MongoDB 6 (Rocket.Chat용)
+  mongo:
+    image: mongo:8.0
+    container_name: pms-mongo
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      - mongodata:/data/db
+    command: mongod --oplogSize 128 --replSet rs0
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }" | mongosh --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Rocket.Chat 메신저
+  rocketchat:
+    image: rocket.chat:latest
+    container_name: pms-rocketchat
+    restart: unless-stopped
+    ports:
+      - "3200:3000"
+    environment:
+      ROOT_URL: http://localhost:3200
+      MONGO_URL: mongodb://mongo:27017/rocketchat?replicaSet=rs0
+      MONGO_OPLOG_URL: mongodb://mongo:27017/local?replicaSet=rs0
+      ADMIN_USERNAME: pmsadmin
+      ADMIN_PASS: Pmsadmin1!
+      ADMIN_EMAIL: admin@pms.local
+      OVERWRITE_SETTING_Show_Setup_Wizard: completed
+      OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_Enabled: "false"
+      OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_Email_Enabled: "false"
+      OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_TOTP_Enabled: "false"
+      OVERWRITE_SETTING_Accounts_Registration_AuthenticationServices_Enabled: "false"
+      OVERWRITE_SETTING_Number_of_users_autocomplete_suggestions: "50"
+      OVERWRITE_SETTING_API_User_Limit: "500"
+      OVERWRITE_SETTING_UI_Use_Real_Name: "true"
+      OVERWRITE_SETTING_UTF8_Channel_Names_Validation: "[0-9a-zA-Z-_.가-힣ㄱ-ㅎㅏ-ㅣ]+"
+      OVERWRITE_SETTING_UTF8_User_Names_Validation: "[0-9a-zA-Z-_.가-힣ㄱ-ㅎㅏ-ㅣ]+"
+      OVERWRITE_SETTING_FileUpload_ProtectFiles: "false"
+      TZ: Asia/Seoul
+      NODE_OPTIONS: --max-old-space-size=1024
+    depends_on:
+      mongo:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    volumes:
+      - rcuploads:/app/uploads
+
+  # Backend (Node.js + Express + Prisma)
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: pms-server
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+      PORT: 3100
+      DATABASE_URL: postgresql://pms_user:pms_password@db:5432/pms
+      DB_HOST: db
+      DB_USER: pms_user
+      DB_PASSWORD: pms_password
+      DB_NAME: pms
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: pms-dev-jwt-secret-change-in-production
+      ROCKETCHAT_URL: http://rocketchat:3000
+      ROCKETCHAT_ADMIN_USER: pmsadmin
+      ROCKETCHAT_ADMIN_PASSWORD: Pmsadmin1!
+      ROCKETCHAT_PUBLIC_URL: http://localhost:3200
+      TZ: Asia/Seoul
+    command: sh -c "npx prisma generate && npm run dev"
+    depends_on:
+      - db
+      - redis
+
+  # Frontend (Vue 3 + Vuetify + Vite)
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: pms-client
+    restart: unless-stopped
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    environment:
+      VITE_API_TARGET: http://server:3100
+      TZ: Asia/Seoul
+    depends_on:
+      - server
+
+volumes:
+  pgdata:
+  redisdata:
+  mongodata:
+  rcuploads:

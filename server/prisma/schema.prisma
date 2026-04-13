@@ -1,0 +1,1107 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── 사용자 ───────────────────────────────────────────
+model User {
+  userId       String   @id @map("user_id") @db.VarChar(50)
+  userName     String   @map("user_name") @db.VarChar(50)
+  email        String   @unique @db.VarChar(100)
+  passwordHash String   @map("password_hash") @db.VarChar(256)
+  department   String?  @db.VarChar(100)
+  position     String?  @db.VarChar(50)
+  phone        String?  @db.VarChar(20)
+  address      String?  @db.VarChar(300)
+  photoPath    String?  @map("photo_path") @db.VarChar(500)
+  systemRole   String   @default("USER") @map("system_role") @db.VarChar(20)
+  isActive     Boolean  @default(true) @map("is_active")
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+  wbsViewAll   Boolean  @default(false) @map("wbs_view_all")  // 전체 WBS 조회 권한
+  rcUserId     String?  @map("rc_user_id") @db.VarChar(50)    // Rocket.Chat userId
+  rcUsername   String?  @map("rc_username") @db.VarChar(50)   // Rocket.Chat username
+  homeProjectId BigInt?  @map("home_project_id")              // 회원가입 시 귀속된 프로젝트 (삭제 시 함께 삭제)
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  managedProjects  Project[]        @relation("ProjectPM")
+  homeProject      Project?         @relation("ProjectHome", fields: [homeProjectId], references: [projectId], onDelete: Cascade)
+  projectMembers   ProjectMember[]
+  assignedTasks    WbsTask[]        @relation("TaskAssignee")
+  uploadedDocs     Deliverable[]    @relation("DocUploader")
+  docVersions      DocVersion[]     @relation("VersionCreator")
+  reviews          Review[]
+  testedCases      TestCase[]       @relation("CaseTester")
+  reportedDefects  Defect[]         @relation("DefectReporter")
+  assignedDefects  Defect[]         @relation("DefectAssignee")
+  ownedRisks       Risk[]           @relation("RiskOwner")
+  reportedIssues   Issue[]          @relation("IssueReporter")
+  assignedIssues   Issue[]          @relation("IssueAssignee")
+  notices          Notice[]         @relation("NoticeWriter")
+  approvals        DeliverableApproval[] @relation("ApprovalApprover")
+
+  @@map("user")
+}
+
+// ─── 프로젝트 (M1) ──────────────────────────────────
+model Project {
+  projectId    BigInt   @id @default(autoincrement()) @map("project_id")
+  projectName  String   @map("project_name") @db.VarChar(200)
+  businessNo   String   @unique @map("business_no") @db.VarChar(20)
+  startDate    DateTime @map("start_date") @db.Date
+  endDate      DateTime @map("end_date") @db.Date
+  status       String   @default("계획") @db.VarChar(20)
+  methodologyId BigInt?  @map("methodology_id")
+  phaseWeights Json?    @map("phase_weights")                 // {"분석":20,"설계":20,...}
+  approvalEnabled  Boolean @default(false) @map("approval_enabled")   // 산출물 승인 프로세스 적용
+  devProgressEnabled Boolean @default(false) @map("dev_progress_enabled") // 주간보고에 개발진척현황 표시
+  docFolderLockEnabled Boolean @default(false) @map("doc_folder_lock_enabled") // 산출물 승인 완료 시 폴더 자동 잠금
+  approvalThresholds Json? @map("approval_thresholds")               // {"작성완료":80,"PL승인":90,...}
+  approvalLine       Json? @map("approval_line")                    // [{depth,role,label,threshold},...]
+  catchphraseImage   String? @map("catchphrase_image") @db.VarChar(500)
+  themeConfig        Json?   @map("theme_config")                        // {preset,primaryColor,fontSize}
+  rcChannelId        String? @map("rc_channel_id") @db.VarChar(50)       // Rocket.Chat 채널 ID
+  rcChannelName      String? @map("rc_channel_name") @db.VarChar(100)    // Rocket.Chat 채널명
+  // ── 기본 정보 ──
+  clientOrg          String?  @map("client_org") @db.VarChar(100)        // 발주기관
+  contractors        Json?    @map("contractors")                         // 수행사 [{name,type:'대표'|'컨소시엄'|'하도급'}]
+  projectType        String?  @map("project_type") @db.VarChar(30)       // 프로젝트 유형: 신규개발/고도화/운영/유지보수
+  contractAmount     BigInt?  @map("contract_amount")                    // 사업 규모 (계약 금액, 원)
+  // ── 일정 ──
+  inspectionDate     DateTime? @map("inspection_date") @db.Date          // 검수 예정일
+  // ── 조직·인력 ──
+  pmUserId           String?  @map("pm_user_id") @db.VarChar(50)
+  clientManager      String?  @map("client_manager") @db.VarChar(100)    // 발주처 담당자
+  qaManager          String?  @map("qa_manager") @db.VarChar(100)        // 품질관리자(QA)
+  auditFirm          String?  @map("audit_firm") @db.VarChar(100)        // 감리 수행사
+  // ── 기술 환경 ──
+  techStack          Json?    @map("tech_stack")                         // {devLang,os,was,dbms,scm,servers}
+  // ── 부가 정보 ──
+  description        String?  @db.Text                                   // 프로젝트 개요
+  note               String?  @db.Text                                   // 비고
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  pm           User?            @relation("ProjectPM", fields: [pmUserId], references: [userId])
+  homeUsers    User[]           @relation("ProjectHome")
+  methodology  Methodology?     @relation(fields: [methodologyId], references: [methodologyId])
+  members      ProjectMember[]
+  tasks        WbsTask[]
+  defects      Defect[]
+  risks        Risk[]
+  issues       Issue[]
+  projectFiles ProjectFile[]
+  milestones   Milestone[]
+  notices      Notice[]
+  noticeBoards NoticeBoard[]
+  projectDeliverables ProjectDeliverable[]
+  requirements        Requirement[]
+  reports             Report[]
+  events              ProjectEvent[]
+  devPrograms         DevProgram[]
+  docFolders          DocFolder[]
+  meetingRooms        MeetingRoom[]
+  mgmtDeliverables    ManagementDeliverable[]
+  teams               ProjectTeam[]
+  wsFolders           WsFolder[]
+  wsPosts             WsPost[]
+  wsTodos             WsTodo[]
+  wsMemos             WsMemo[]
+  libraryFiles        LibraryFile[]
+
+  @@map("project")
+}
+
+// ─── 마일스톤 (M2) ──────────────────────────────────
+model Milestone {
+  milestoneId  BigInt   @id @default(autoincrement()) @map("milestone_id")
+  projectId    BigInt   @map("project_id")
+  milestoneName String  @map("milestone_name") @db.VarChar(200)
+  dueDate      DateTime @map("due_date") @db.Date
+  milestoneType String  @default("기타") @map("milestone_type") @db.VarChar(50)  // 감리/보고/이행/기타
+  status       String   @default("예정") @db.VarChar(20)  // 예정/완료/지연
+  description  String?  @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project      Project  @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("milestone")
+}
+
+// ─── 공지 게시판 (M5) ───────────────────────────────
+model NoticeBoard {
+  boardId      BigInt   @id @default(autoincrement()) @map("board_id")
+  projectId    BigInt   @map("project_id")
+  category     String   @default("notice") @db.VarChar(20)  // notice | library
+  boardName    String   @map("board_name") @db.VarChar(100)
+  description  String?  @db.VarChar(300)
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project      Project  @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  notices      Notice[]
+
+  @@map("notice_board")
+}
+
+model Notice {
+  noticeId     BigInt   @id @default(autoincrement()) @map("notice_id")
+  projectId    BigInt?  @map("project_id")
+  boardId      BigInt?  @map("board_id")    // 게시판 분류 (null이면 전체)
+  category     String   @default("notice") @db.VarChar(20)  // notice | library
+  title        String   @db.VarChar(300)
+  content      String   @db.Text            // HTML (리치 텍스트)
+  isPinned     Boolean  @default(false) @map("is_pinned")
+  writerId     String   @map("writer_id") @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  project      Project?     @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  board        NoticeBoard? @relation(fields: [boardId], references: [boardId])
+  writer       User         @relation("NoticeWriter", fields: [writerId], references: [userId])
+  attachments  NoticeAttachment[]
+
+  @@index([projectId])
+  @@index([boardId])
+  @@map("notice")
+}
+
+model NoticeAttachment {
+  attachId     BigInt   @id @default(autoincrement()) @map("attach_id")
+  noticeId     BigInt   @map("notice_id")
+  fileName     String   @map("file_name") @db.VarChar(300)
+  filePath     String   @map("file_path") @db.VarChar(500)
+  fileSize     BigInt   @default(0) @map("file_size")
+  mimeType     String?  @map("mime_type") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  notice       Notice   @relation(fields: [noticeId], references: [noticeId], onDelete: Cascade)
+
+  @@map("notice_attachment")
+}
+
+// ─── 프로젝트 투입인력 (M1) ─────────────────────────
+model ProjectMember {
+  memberId   BigInt   @id @default(autoincrement()) @map("member_id")
+  projectId  BigInt   @map("project_id")
+  userId     String   @map("user_id") @db.VarChar(50)
+  role       String   @db.VarChar(30)
+  joinDate   DateTime @map("join_date") @db.Date
+  leaveDate  DateTime? @map("leave_date") @db.Date
+  manMonth   Decimal  @default(0.00) @map("man_month") @db.Decimal(5, 2)
+  reportToId BigInt?  @map("report_to_id")                    // 조직도 상위자
+  isEmergency Boolean @default(false) @map("is_emergency")    // 비상연락망 포함
+
+  project    Project  @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [userId])
+
+  @@unique([projectId, userId])
+  @@map("project_member")
+}
+
+// ─── WBS 태스크 (M2) ────────────────────────────────
+model WbsTask {
+  taskId       BigInt   @id @default(autoincrement()) @map("task_id")
+  projectId    BigInt   @map("project_id")
+  parentTaskId BigInt?  @map("parent_task_id")
+  wbsCode      String?  @map("wbs_code") @db.VarChar(50)   // WBS 번호 (1.2.3.1)
+  taskName     String   @map("task_name") @db.VarChar(200)
+  phase        String?  @db.VarChar(20)
+  depth        Int      @default(1)
+  sortOrder    Int      @default(0) @map("sort_order")
+  baselineStart DateTime? @map("baseline_start") @db.Date   // 초기계획 시작일
+  baselineEnd   DateTime? @map("baseline_end") @db.Date     // 초기계획 완료일
+  planStart    DateTime? @map("plan_start") @db.Date        // 변경계획 시작일
+  planEnd      DateTime? @map("plan_end") @db.Date          // 변경계획 완료일
+  actualStart  DateTime? @map("actual_start") @db.Date      // 실제 시작일
+  actualEnd    DateTime? @map("actual_end") @db.Date        // 실제 완료일
+  duration     Int?                                          // 계획 MD
+  actualMd     Int?     @map("actual_md")                    // 실적 MD
+  progressRate  Decimal  @default(0.00) @map("progress_rate") @db.Decimal(5, 2)  // 계획 진행율
+  actualRate    Decimal  @default(0.00) @map("actual_rate") @db.Decimal(5, 2)    // 실적 진행율
+  weight        Decimal  @default(1.00) @db.Decimal(5, 2)   // 태스크 가중치 (MD 비율)
+  bizWeight     Decimal  @default(0) @map("biz_weight") @db.Decimal(5, 2)  // 업무 가중치 (depth 2 전용, 합계 100%)
+  phaseWeights  Json?    @map("phase_weights")                // 업무별 단계 가중치 {"분석":20,"설계":30,...} (depth 2만)
+  taskRole     String?  @map("task_role") @db.VarChar(50)    // PL/팀원/QA/DBA
+  assigneeId   String?  @map("assignee_id") @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  project        Project            @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  parentTask     WbsTask?           @relation("TaskTree", fields: [parentTaskId], references: [taskId])
+  childTasks     WbsTask[]          @relation("TaskTree")
+  assignee       User?              @relation("TaskAssignee", fields: [assigneeId], references: [userId])
+  deliverables   Deliverable[]
+  testCases      TestCase[]
+  predecessors   TaskDependency[]   @relation("DepSuccessor")
+  successors     TaskDependency[]   @relation("DepPredecessor")
+
+  @@index([projectId])
+  @@index([parentTaskId])
+  @@map("wbs_task")
+}
+
+// ─── 작업 의존관계 (M2) ─────────────────────────────
+model TaskDependency {
+  depId           BigInt   @id @default(autoincrement()) @map("dep_id")
+  predecessorId   BigInt   @map("predecessor_id")
+  successorId     BigInt   @map("successor_id")
+  depType         String   @default("FS") @map("dep_type") @db.VarChar(2)  // FS/FF/SS/SF
+  lagDays         Int      @default(0) @map("lag_days")  // +Lead / -Lag (영업일)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  predecessor     WbsTask  @relation("DepPredecessor", fields: [predecessorId], references: [taskId], onDelete: Cascade)
+  successor       WbsTask  @relation("DepSuccessor", fields: [successorId], references: [taskId], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([successorId])
+  @@map("task_dependency")
+}
+
+// ─── 산출물 (M3) ────────────────────────────────────
+model Deliverable {
+  docId         BigInt   @id @default(autoincrement()) @map("doc_id")
+  taskId        BigInt   @map("task_id")
+  docType       String   @map("doc_type") @db.VarChar(50)
+  docName       String   @map("doc_name") @db.VarChar(300)
+  filePath      String?  @map("file_path") @db.VarChar(500)
+  fileSize      BigInt   @default(0) @map("file_size")
+  status        String   @default("등록") @db.VarChar(20)          // 등록/작성중/작성완료/승인요청/승인완료
+  approvalDepth Int      @default(0) @map("approval_depth")        // 0:작성중, 1:PL승인, 2:QA승인, 3:PMO승인, 4:고객승인
+  auditorCheck  String   @default("미점검") @map("auditor_check") @db.VarChar(20)
+  uploaderId    String?  @map("uploader_id") @db.VarChar(50)
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+
+  // Relations
+  task         WbsTask      @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  uploader     User?        @relation("DocUploader", fields: [uploaderId], references: [userId])
+  versions     DocVersion[]
+  reviews      Review[]
+  approvals    DeliverableApproval[]
+
+  @@map("deliverable")
+}
+
+// ─── 산출물 버전 이력 (M3) ──────────────────────────
+model DocVersion {
+  versionId   BigInt   @id @default(autoincrement()) @map("version_id")
+  docId       BigInt   @map("doc_id")
+  versionNo   Int      @map("version_no")
+  filePath    String   @map("file_path") @db.VarChar(500)
+  fileSize    BigInt   @default(0) @map("file_size")
+  changeDesc  String?  @map("change_desc") @db.VarChar(500)
+  createdBy   String?  @map("created_by") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  doc         Deliverable @relation(fields: [docId], references: [docId], onDelete: Cascade)
+  creator     User?       @relation("VersionCreator", fields: [createdBy], references: [userId])
+
+  @@map("doc_version")
+}
+
+// ─── 산출물 검토 (M3) ───────────────────────────────
+model Review {
+  reviewId    BigInt   @id @default(autoincrement()) @map("review_id")
+  docId       BigInt   @map("doc_id")
+  reviewerId  String   @map("reviewer_id") @db.VarChar(50)
+  result      String   @db.VarChar(20)
+  comment     String?  @db.Text
+  reviewedAt  DateTime @default(now()) @map("reviewed_at")
+
+  // Relations
+  doc         Deliverable @relation(fields: [docId], references: [docId], onDelete: Cascade)
+  reviewer    User        @relation(fields: [reviewerId], references: [userId])
+
+  @@map("review")
+}
+
+// ─── 산출물 승인 이력 ──────────────────────────────
+model DeliverableApproval {
+  approvalId   BigInt   @id @default(autoincrement()) @map("approval_id")
+  docId        BigInt   @map("doc_id")
+  depth        Int                                                // 1:PL, 2:QA, 3:PMO, 4:고객
+  approverRole String   @map("approver_role") @db.VarChar(20)    // 팀장/QA/PMO/고객
+  approverId   String?  @map("approver_id") @db.VarChar(50)
+  status       String   @default("대기") @db.VarChar(20)          // 대기/승인요청/승인/반려
+  comment      String?  @db.Text
+  requestedAt  DateTime? @map("requested_at")
+  processedAt  DateTime? @map("processed_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  doc          Deliverable @relation(fields: [docId], references: [docId], onDelete: Cascade)
+  approver     User?       @relation("ApprovalApprover", fields: [approverId], references: [userId])
+
+  @@unique([docId, depth])
+  @@index([approverId, status])
+  @@map("deliverable_approval")
+}
+
+// ─── 테스트 케이스 (M4 - watch2-TMS 연동) ──────────
+model TestCase {
+  tcId           BigInt   @id @default(autoincrement()) @map("tc_id")
+  taskId         BigInt   @map("task_id")
+  tcName         String   @map("tc_name") @db.VarChar(300)
+  testType       String   @map("test_type") @db.VarChar(20)
+  priority       String   @default("보통") @db.VarChar(10)
+  precondition   String?  @db.Text
+  steps          String   @db.Text
+  expectedResult String   @map("expected_result") @db.Text
+  status         String   @default("작성중") @db.VarChar(20)
+  testerId       String?  @map("tester_id") @db.VarChar(50)
+  executedAt     DateTime? @map("executed_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  task           WbsTask  @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  tester         User?    @relation("CaseTester", fields: [testerId], references: [userId])
+  defects        Defect[]
+
+  @@map("test_case")
+}
+
+// ─── 결함 (M4 - watch2-TMS 연동) ───────────────────
+model Defect {
+  defectId    BigInt   @id @default(autoincrement()) @map("defect_id")
+  defectNo    String   @unique @map("defect_no") @db.VarChar(20)
+  tcId        BigInt?  @map("tc_id")
+  projectId   BigInt   @map("project_id")
+  severity    String   @db.VarChar(10)
+  priority    String   @db.VarChar(10)
+  status      String   @default("신규") @db.VarChar(20)
+  title       String   @db.VarChar(300)
+  description String?  @db.Text
+  assigneeId  String?  @map("assignee_id") @db.VarChar(50)
+  reporterId  String   @map("reporter_id") @db.VarChar(50)
+  reportedAt  DateTime @default(now()) @map("reported_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  // Relations
+  testCase    TestCase? @relation(fields: [tcId], references: [tcId])
+  project     Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  assignee    User?     @relation("DefectAssignee", fields: [assigneeId], references: [userId])
+  reporter    User      @relation("DefectReporter", fields: [reporterId], references: [userId])
+
+  @@index([projectId])
+  @@index([status])
+  @@map("defect")
+}
+
+// ─── 위험 (M1) ──────────────────────────────────────
+// ─── 리스크 ──────────────────────────────────────
+model Risk {
+  riskId          BigInt    @id @default(autoincrement()) @map("risk_id")
+  projectId       BigInt    @map("project_id")
+  riskName        String    @map("risk_name") @db.VarChar(300)       // 리스크 제목
+  category        String?   @db.VarChar(50)                          // 범주: 기술/일정/인력자원/범위/외부환경/계약제무/품질
+  subType         String?   @map("sub_type") @db.VarChar(100)        // 세부유형
+  phase           String?   @db.VarChar(20)                          // 단계: 착수/분석/설계/구현/시험/이행
+  teamDept        String?   @map("team_dept") @db.VarChar(100)       // 팀구분
+  content         String?   @db.Text                                 // 내용 (현상/원인/예상문제점/해결방안/내외부)
+  impact          String?   @db.Text                                 // 영향
+  impactLevel     String    @map("impact_level") @db.VarChar(10)     // 영향도: 상/중/하
+  probability     String    @db.VarChar(10)                          // 가능성: 상/중/하
+  approach        String?   @db.VarChar(20)                          // 접근방안: 완화/수용/회피/전이
+  status          String    @default("Opened") @db.VarChar(20)       // Opened/Accepted/Resolved/Closed
+  assigneeName    String?   @map("assignee_name") @db.VarChar(100)   // 담당자명
+  relatedClient   String?   @map("related_client") @db.VarChar(100)  // 관련고객명
+  identifiedAt    DateTime? @map("identified_at") @db.Date           // 식별일자
+  expectedAt      String?   @map("expected_at") @db.VarChar(100)     // 발생가능시점
+  resolvedAt      DateTime? @map("resolved_at") @db.Date             // 종료일자
+  actionHistory   String?   @map("action_history") @db.Text          // 해결방법 및 조치사항
+  contingencyPlan String?   @map("contingency_plan") @db.Text        // 비상대처계획
+  shareTarget      String?  @map("share_target") @db.VarChar(100)    // 공유여부: 관리자/팀원/고객/기타
+  internalExternal String?  @map("internal_external") @db.VarChar(20) // 내부/외부
+  occurrenceRate  Int?      @map("occurrence_rate")                   // 발생확률 %
+  remark          String?   @db.Text                                 // 비고
+  // 레거시
+  mitigationPlan  String?   @map("mitigation_plan") @db.Text
+  ownerId         String?   @map("owner_id") @db.VarChar(50)
+  createdBy       String?   @map("created_by") @db.VarChar(50)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  project         Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  owner           User?     @relation("RiskOwner", fields: [ownerId], references: [userId])
+  statusHistory   RiskStatusHistory[]
+
+  @@map("risk")
+}
+
+model RiskStatusHistory {
+  historyId     BigInt    @id @default(autoincrement()) @map("history_id")
+  riskId        BigInt    @map("risk_id")
+  status        String    @db.VarChar(20)
+  changeDate    DateTime  @default(now()) @map("change_date")
+  changeContent String?   @map("change_content") @db.Text
+  changedBy     String    @map("changed_by") @db.VarChar(50)
+
+  risk          Risk      @relation(fields: [riskId], references: [riskId], onDelete: Cascade)
+  @@index([riskId])
+  @@map("risk_status_history")
+}
+
+// ─── 이슈 ──────────────────────────────────────
+model Issue {
+  issueId          BigInt    @id @default(autoincrement()) @map("issue_id")
+  projectId        BigInt    @map("project_id")
+  issueTitle       String    @map("issue_title") @db.VarChar(300)      // 이슈 제목
+  category         String?   @db.VarChar(50)                           // 범주: 기술/요구사항/일정공정/인력자원/이해관계자/계약행정/품질산출물
+  subType          String?   @map("sub_type") @db.VarChar(100)         // 세부유형
+  phase            String?   @db.VarChar(20)                           // 단계
+  teamDept         String?   @map("team_dept") @db.VarChar(100)        // 팀구분
+  content          String?   @db.Text                                  // 내용
+  impact           String?   @db.Text                                  // 영향
+  importance       String?   @db.VarChar(10)                           // 중요도: 상/중/하
+  urgency          String?   @db.VarChar(10)                           // 긴급성: 상/중/하
+  status           String    @default("Opened") @db.VarChar(20)        // Opened/Progressed/Solved/Cancelled
+  assigneeName     String?   @map("assignee_name") @db.VarChar(100)    // 담당자명
+  relatedClient    String?   @map("related_client") @db.VarChar(100)   // 관련고객명
+  identifiedAt     DateTime? @map("identified_at") @db.Date            // 식별(발생)일자
+  expectedEndAt    DateTime? @map("expected_end_at") @db.Date          // 예상종료일자
+  resolvedAt       DateTime? @map("resolved_at") @db.Date              // 종료일자
+  resolution       String?   @db.Text                                  // 해결방법 및 조치사항
+  shareTarget      String?   @map("share_target") @db.VarChar(100)     // 공유여부: 관리자/팀원/고객/기타
+  relatedRiskId    BigInt?   @map("related_risk_id")                   // 관련 리스크 ID
+  internalExternal String?   @map("internal_external") @db.VarChar(20) // 내부/외부
+  requestToClient  String?   @map("request_to_client") @db.Text        // 요청사항(프로젝트팀→추진단)
+  requestFromClient String?  @map("request_from_client") @db.Text      // 요청사항(추진단→프로젝트팀)
+  remark           String?   @db.Text                                  // 비고
+  // 레거시
+  description      String?   @db.Text
+  priority         String?   @db.VarChar(10)
+  reporterId       String?   @map("reporter_id") @db.VarChar(50)
+  assigneeId       String?   @map("assignee_id") @db.VarChar(50)
+  createdBy        String?   @map("created_by") @db.VarChar(50)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  project          Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  reporter         User?     @relation("IssueReporter", fields: [reporterId], references: [userId])
+  assignee         User?     @relation("IssueAssignee", fields: [assigneeId], references: [userId])
+  statusHistory    IssueStatusHistory[]
+
+  @@map("issue")
+}
+
+model IssueStatusHistory {
+  historyId     BigInt    @id @default(autoincrement()) @map("history_id")
+  issueId       BigInt    @map("issue_id")
+  status        String    @db.VarChar(20)
+  changeDate    DateTime  @default(now()) @map("change_date")
+  changeContent String?   @map("change_content") @db.Text
+  changedBy     String    @map("changed_by") @db.VarChar(50)
+
+  issue         Issue     @relation(fields: [issueId], references: [issueId], onDelete: Cascade)
+  @@index([issueId])
+  @@map("issue_status_history")
+}
+
+// ─── 감사 로그 (M6) ────────────────────────────────
+model AuditLog {
+  logId        BigInt   @id @default(autoincrement()) @map("log_id")
+  userId       String   @map("user_id") @db.VarChar(50)
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  action       String   @db.VarChar(20)
+  targetType   String?  @map("target_type") @db.VarChar(50)
+  targetId     BigInt?  @map("target_id")
+  changeDetail Json?    @map("change_detail")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+// ─── 공통코드 (M6) ─────────────────────────────────
+// ─── 소프트웨어 개발 방법론 ──────────────────────────
+model Methodology {
+  methodologyId BigInt   @id @default(autoincrement()) @map("methodology_id")
+  name          String   @db.VarChar(200)
+  description   String?  @db.Text
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  deliverables  DeliverableMaster[]
+  projects      Project[]
+
+  @@map("methodology")
+}
+
+// ─── 방법론별 산출물 목록 ──────────────────────────────
+model DeliverableMaster {
+  masterId      BigInt   @id @default(autoincrement()) @map("master_id")
+  methodologyId BigInt   @default(1) @map("methodology_id")
+  phase         String   @db.VarChar(20)          // 분석/설계/구현/시험/전개
+  docCode       String   @map("doc_code") @db.VarChar(20)
+  docName       String   @map("doc_name") @db.VarChar(200)
+  mandatory     String   @default("선택") @db.VarChar(10)  // 필수/선택
+  description   String?  @db.Text
+  sortOrder     Int      @default(0) @map("sort_order")
+
+  methodology   Methodology         @relation(fields: [methodologyId], references: [methodologyId])
+  projectDefs   ProjectDeliverable[]
+
+  @@unique([methodologyId, docCode])
+  @@map("deliverable_master")
+}
+
+// ─── 프로젝트 산출물 테일러링 ──────────────────────────
+model ProjectDeliverable {
+  projDelId         BigInt   @id @default(autoincrement()) @map("proj_del_id")
+  projectId         BigInt   @map("project_id")
+  masterId          BigInt   @map("master_id")
+  projectDocName    String?  @map("project_doc_name") @db.VarChar(300)  // 프로젝트 적용 산출물명 (변경 가능)
+  applied           Boolean  @default(true)                              // 적용여부
+  interim           Boolean  @default(false)                             // 중간과정 산출물
+  official          Boolean  @default(false)                             // 공식제출
+  notAppliedReason  String?  @map("not_applied_reason") @db.VarChar(500) // 미적용 사유
+  remark            String?  @db.VarChar(500)                            // 비고
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  project     Project             @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  master      DeliverableMaster   @relation(fields: [masterId], references: [masterId])
+
+  @@unique([projectId, masterId])
+  @@map("project_deliverable")
+}
+
+// ─── 관리 산출물 ────────────────────────────────────
+model ManagementDeliverable {
+  mgmtDelId     BigInt    @id @default(autoincrement()) @map("mgmt_del_id")
+  projectId     BigInt    @map("project_id")
+  category      String    @db.VarChar(30)                     // 기본정보/계획/목표/표준/보고서
+  docName       String    @map("doc_name") @db.VarChar(300)
+  isCustomer    Boolean   @default(false) @map("is_customer") // 고객 제출
+  isInternal    Boolean   @default(false) @map("is_internal") // 내부 관리
+  applied       Boolean   @default(true)                       // 적용여부
+  remark        String?   @db.VarChar(500)                     // 비고
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("management_deliverable")
+}
+
+// ─── 산출물 저장소 (웹폴더) ──────────────────────────
+model DocFolder {
+  folderId      BigInt    @id @default(autoincrement()) @map("folder_id")
+  projectId     BigInt    @map("project_id")
+  parentId      BigInt?   @map("parent_id")               // 상위 폴더 (null=단계 루트)
+  folderName    String    @map("folder_name") @db.VarChar(300)
+  folderType    String    @default("methodology") @map("folder_type") @db.VarChar(20) // methodology/management
+  phase         String?   @db.VarChar(20)                  // 분석/설계/구현/시험/이행 (루트 폴더용)
+  projDelId     BigInt?   @map("proj_del_id")              // 연결된 테일러링 산출물
+  isLocked      Boolean   @default(false) @map("is_locked") // 잠금 (WBS 승인 완료 시)
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  parent        DocFolder? @relation("FolderTree", fields: [parentId], references: [folderId])
+  children      DocFolder[] @relation("FolderTree")
+  files         DocFile[]
+
+  @@index([projectId])
+  @@index([parentId])
+  @@map("doc_folder")
+}
+
+model DocFile {
+  fileId        BigInt    @id @default(autoincrement()) @map("file_id")
+  folderId      BigInt    @map("folder_id")
+  fileName      String    @map("file_name") @db.VarChar(300)
+  filePath      String    @map("file_path") @db.VarChar(500)
+  fileSize      BigInt    @default(0) @map("file_size")
+  mimeType      String?   @map("mime_type") @db.VarChar(100)
+  version       Int       @default(1)
+  description   String?   @db.VarChar(500)
+  uploaderId    String    @map("uploader_id") @db.VarChar(50)
+  uploaderName  String?   @map("uploader_name") @db.VarChar(100)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  folder        DocFolder @relation(fields: [folderId], references: [folderId])
+
+  @@index([folderId])
+  @@map("doc_file")
+}
+
+// ─── 요구사항 관리 ──────────────────────────────────
+model Requirement {
+  requirementId      BigInt    @id @default(autoincrement()) @map("requirement_id")
+  projectId          BigInt    @map("project_id")
+  // ── 요구사항 식별 ──
+  reqCode            String    @map("req_code") @db.VarChar(20)          // 요구사항ID (관리자 입력)
+  reqName            String    @map("req_name") @db.VarChar(300)         // 요구사항명
+  reqDetail          String?   @map("req_detail") @db.Text               // 요구사항 내용(상세)
+  // ── 분류/상태 ──
+  sourceType         String?   @map("source_type") @db.VarChar(50)       // 도출유형: 신규/개선/현행/기타
+  reqType            String?   @map("req_type") @db.VarChar(20)          // 요구사항유형: 기능/비기능
+  progressStatus     String    @default("미분류") @map("progress_status") @db.VarChar(20) // 진행상태: 미분류/수용/대체/제외/통합
+  statusChangeReason String?   @map("status_change_reason") @db.VarChar(500)  // 진행상태 변경사유
+  derivationPhase    String?   @map("derivation_phase") @db.VarChar(20)  // 도출단계: 분석/설계/구현
+  // ── 출처 ──
+  sourceCategory     String?   @map("source_category") @db.VarChar(50)   // 요구사항 출처구분: 제안요청/기술협상/품의/기타
+  sourceDesc         String?   @map("source_desc") @db.Text              // 요구사항 출처상세
+  // ── 업무/기능 ──
+  business           String?   @map("business") @db.VarChar(100)         // 업무명
+  funcName           String?   @map("func_name") @db.VarChar(300)        // 기능명 (구 technology)
+  subFuncName        String?   @map("sub_func_name") @db.VarChar(300)    // 세부기능명
+  // ── 적용/검토 ──
+  reviewOpinion      String?   @map("review_opinion") @db.Text           // 적용방안(검토의견) (구 discoveryPhase)
+  // ── 인원/조직 ──
+  requesterName      String?   @map("requester_name") @db.VarChar(100)   // 요청자
+  requesterDept      String?   @map("requester_dept") @db.VarChar(100)   // 요청부서
+  assigneeName       String?   @map("assignee_name") @db.VarChar(100)    // 담당자
+  reviewerName       String?   @map("reviewer_name") @db.VarChar(100)    // 검토자 (구 completedBy)
+  // ── 중요도/난이도 ──
+  importance         String?   @map("importance") @db.VarChar(10)        // 중요도: 상/중/하
+  difficulty         String?   @map("difficulty") @db.VarChar(10)        // 난이도: 상/중/하
+  // ── 일정 ──
+  plannedEndDate     DateTime? @map("planned_end_date") @db.Date         // 완료예정일
+  completedAt        DateTime? @map("completed_at") @db.Date             // 요구사항 확정일 (=Baseline)
+  isBaselined        Boolean   @default(false) @map("is_baselined")
+  // ── 레거시 (DB 호환 유지) ──
+  baselinedAt        DateTime? @map("baselined_at")                     // 미사용 (completedAt으로 통합)
+  discoveryPhase     String?   @map("discovery_phase") @db.Text
+  technology         String?   @map("technology") @db.Text
+  completedBy        String?   @map("completed_by") @db.VarChar(100)
+  completionNote     String?   @map("completion_note") @db.Text
+  requestDate        DateTime? @map("request_date") @db.Date
+  funcCategory       String?   @map("func_category") @db.VarChar(20)
+  priority           String?   @map("priority") @db.VarChar(10)
+  confirmerName      String?   @map("confirmer_name") @db.VarChar(100)
+  designApproach     String?   @map("design_approach") @db.Text
+  testMethod         String?   @map("test_method") @db.Text
+  relatedReqs        String?   @map("related_reqs") @db.VarChar(500)
+  remark             String?   @map("remark") @db.Text
+  createdBy          String    @map("created_by") @db.VarChar(50)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  project            Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  histories          RequirementHistory[]
+
+  @@unique([projectId, reqCode])
+  @@index([projectId])
+  @@index([projectId, progressStatus])
+  @@map("requirement")
+}
+
+model RequirementHistory {
+  historyId       BigInt    @id @default(autoincrement()) @map("history_id")
+  requirementId   BigInt    @map("requirement_id")
+  changeType      String    @map("change_type") @db.VarChar(20)   // 변경/대체/통합/제외
+  changedFields   Json?     @map("changed_fields")                // { fieldName: { before, after } }
+  changeReason    String?   @map("change_reason") @db.VarChar(500)
+  changedBy       String    @map("changed_by") @db.VarChar(50)
+  changedAt       DateTime  @default(now()) @map("changed_at")
+
+  requirement     Requirement @relation(fields: [requirementId], references: [requirementId], onDelete: Cascade)
+
+  @@index([requirementId])
+  @@map("requirement_history")
+}
+
+// ─── 프로젝트 캘린더 이벤트 ────────────────────────
+model ProjectEvent {
+  eventId       BigInt    @id @default(autoincrement()) @map("event_id")
+  projectId     BigInt    @map("project_id")
+  title         String    @db.VarChar(300)
+  eventType     String    @map("event_type") @db.VarChar(30)    // milestone/meeting/audit/release/holiday/other
+  eventDate     DateTime  @map("event_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date             // 기간 이벤트용
+  color         String?   @db.VarChar(20)                        // 캘린더 표시 색상
+  description   String?   @db.Text
+  createdBy     String    @map("created_by") @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, eventDate])
+  @@map("project_event")
+}
+
+// ─── 개발진척 프로그램 ─────────────────────────────
+model DevProgram {
+  pgmId           BigInt    @id @default(autoincrement()) @map("pgm_id")
+  projectId       BigInt    @map("project_id")
+  pgmCode         String    @map("pgm_code") @db.VarChar(30)          // 프로그램 ID (USR-ONL-001)
+  pgmName         String    @map("pgm_name") @db.VarChar(200)         // 프로그램명
+  taskCode        String    @map("task_code") @db.VarChar(50)         // 업무(서브시스템) 코드
+  pgmType         String    @map("pgm_type") @db.VarChar(10)          // ONL/BAT/INF/RPT/COM/MIG
+  screenId        String?   @map("screen_id") @db.VarChar(30)         // 화면 ID
+  difficulty      String    @default("M") @db.VarChar(10)             // H/M/L
+  priority        String    @default("NORMAL") @db.VarChar(10)        // URGENT/HIGH/NORMAL/LOW
+  reqId           String?   @map("req_id") @db.VarChar(30)            // 요구사항 ID
+  reqName         String?   @map("req_name") @db.VarChar(300)         // 요구사항명
+  devUserId       String?   @map("dev_user_id") @db.VarChar(50)       // 개발 담당자 ID
+  devUserName     String?   @map("dev_user_name") @db.VarChar(100)    // 개발 담당자명
+  devTeam         String?   @map("dev_team") @db.VarChar(100)         // 개발팀
+  reviewerId      String?   @map("reviewer_id") @db.VarChar(50)       // 검토자 ID
+  planStartDate   DateTime  @map("plan_start_date") @db.Date          // 계획 시작일
+  planEndDate     DateTime  @map("plan_end_date") @db.Date            // 계획 종료일
+  actualStartDate DateTime? @map("actual_start_date") @db.Date        // 실제 시작일
+  actualEndDate   DateTime? @map("actual_end_date") @db.Date          // 실제 종료일
+  planTcCount     Int       @default(0) @map("plan_tc_count")          // 계획 TC 수
+  relatedDoc      String?   @map("related_doc") @db.VarChar(500)       // 관련 설계서
+  remark          String?   @db.Text                                    // 비고
+  createdBy       String    @map("created_by") @db.VarChar(50)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  project         Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  weeklyPlans     DevPlanWeekly[]
+  weeklyActuals   DevActualWeekly[]
+
+  @@unique([projectId, pgmCode])
+  @@index([projectId])
+  @@index([projectId, taskCode])
+  @@index([projectId, devUserId])
+  @@map("dev_program")
+}
+
+// ─── 주차별 계획 진척률 ─────────────────────────────
+model DevPlanWeekly {
+  planId          BigInt    @id @default(autoincrement()) @map("plan_id")
+  pgmId           BigInt    @map("pgm_id")
+  weekNo          Int       @map("week_no")                            // 주차 번호 (1,2,3...)
+  yearWeek        String    @map("year_week") @db.VarChar(10)          // 2026-W14
+  weekStartDate   DateTime  @map("week_start_date") @db.Date           // 해당 주 시작(월)
+  weekEndDate     DateTime  @map("week_end_date") @db.Date             // 해당 주 종료(금)
+  planRate        Decimal   @default(0) @map("plan_rate") @db.Decimal(5, 2)    // 해당 주 계획 진척률
+  planCumRate     Decimal   @default(0) @map("plan_cum_rate") @db.Decimal(5, 2) // 누적 계획 진척률
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  program         DevProgram @relation(fields: [pgmId], references: [pgmId], onDelete: Cascade)
+
+  @@unique([pgmId, weekNo])
+  @@map("dev_plan_weekly")
+}
+
+// ─── 알림 ──────────────────────────────────────────
+model Notification {
+  notifId       BigInt    @id @default(autoincrement()) @map("notif_id")
+  userId        String    @map("user_id") @db.VarChar(50)          // 수신자
+  projectId     BigInt?   @map("project_id")
+  type          String    @db.VarChar(30)                           // report_request, approval_request, issue_assign, etc.
+  title         String    @db.VarChar(300)
+  message       String?   @db.Text
+  link          String?   @db.VarChar(500)                          // 클릭 시 이동 경로
+  isRead        Boolean   @default(false) @map("is_read")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notification")
+}
+
+// ─── 회의실 ──────────────────────────────────────────
+model MeetingRoom {
+  roomId        BigInt    @id @default(autoincrement()) @map("room_id")
+  projectId     BigInt    @map("project_id")
+  roomName      String    @map("room_name") @db.VarChar(100)
+  location      String?   @db.VarChar(200)
+  capacity      Int       @default(10)
+  description   String?   @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  bookings      RoomBooking[]
+
+  @@index([projectId])
+  @@map("meeting_room")
+}
+
+model RoomBooking {
+  bookingId     BigInt    @id @default(autoincrement()) @map("booking_id")
+  roomId        BigInt    @map("room_id")
+  bookingDate   DateTime  @map("booking_date") @db.Date
+  startTime     String    @map("start_time") @db.VarChar(5)    // HH:MM
+  endTime       String    @map("end_time") @db.VarChar(5)      // HH:MM
+  title         String    @db.VarChar(200)
+  bookerId      String    @map("booker_id") @db.VarChar(50)
+  bookerName    String?   @map("booker_name") @db.VarChar(100)
+  attendees     String?   @db.Text                              // 참석자 (콤마 구분)
+  recurrenceGroupId String? @map("recurrence_group_id") @db.VarChar(40)  // 반복 예약 그룹 ID (동일 그룹은 한번에 관리)
+  recurrenceType    String? @map("recurrence_type") @db.VarChar(10)      // 'weekly' | 'monthly' | null
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  room          MeetingRoom @relation(fields: [roomId], references: [roomId], onDelete: Cascade)
+
+  @@index([roomId, bookingDate])
+  @@index([recurrenceGroupId])
+  @@map("room_booking")
+}
+
+// ─── 주간 실적 ──────────────────────────────────────
+model DevActualWeekly {
+  actualId        BigInt    @id @default(autoincrement()) @map("actual_id")
+  pgmId           BigInt    @map("pgm_id")
+  weekNo          Int       @map("week_no")
+  yearWeek        String    @map("year_week") @db.VarChar(10)
+  actualRate      Decimal   @default(0) @map("actual_rate") @db.Decimal(5, 2)    // 금주 실적 진척률
+  actualCumRate   Decimal   @default(0) @map("actual_cum_rate") @db.Decimal(5, 2) // 누적 실적 진척률
+  planCumRate     Decimal   @default(0) @map("plan_cum_rate") @db.Decimal(5, 2)   // 누적 계획(스냅샷)
+  gapRate         Decimal   @default(0) @map("gap_rate") @db.Decimal(5, 2)        // 차이(실적-계획)
+  statusCode      String?   @map("status_code") @db.VarChar(20)
+  delayReason     String?   @map("delay_reason") @db.Text               // 지연 사유
+  tcExecCount     Int       @default(0) @map("tc_exec_count")
+  tcPassCount     Int       @default(0) @map("tc_pass_count")
+  tcFailCount     Int       @default(0) @map("tc_fail_count")
+  defectCount     Int       @default(0) @map("defect_count")
+  effortMd        Decimal   @default(0) @map("effort_md") @db.Decimal(5, 2)
+  effortCumMd     Decimal   @default(0) @map("effort_cum_md") @db.Decimal(5, 2)
+  regUserId       String    @map("reg_user_id") @db.VarChar(50)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  program         DevProgram @relation(fields: [pgmId], references: [pgmId], onDelete: Cascade)
+
+  @@unique([pgmId, weekNo])
+  @@map("dev_actual_weekly")
+}
+
+model CommonCode {
+  codeGroup   String  @map("code_group") @db.VarChar(50)
+  code        String  @db.VarChar(50)
+  codeName    String  @map("code_name") @db.VarChar(100)
+  sortOrder   Int     @default(0) @map("sort_order")
+  isActive    Boolean @default(true) @map("is_active")
+  description String? @db.VarChar(200)
+
+  @@id([codeGroup, code])
+  @@map("common_code")
+}
+
+// ─── 보고서 (C2) ────────────────────────────────────
+model Report {
+  reportId      BigInt    @id @default(autoincrement()) @map("report_id")
+  projectId     BigInt    @map("project_id")
+  reportType    String    @map("report_type") @db.VarChar(20)    // weekly/monthly/audit/completion
+  title         String    @db.VarChar(300)
+  periodStart   DateTime? @map("period_start") @db.Date          // 보고 기간 시작 (금주/금월)
+  periodEnd     DateTime? @map("period_end") @db.Date            // 보고 기간 종료 (금주/금월)
+  nextStart     DateTime? @map("next_start") @db.Date            // 차주/차월 시작
+  nextEnd       DateTime? @map("next_end") @db.Date              // 차주/차월 종료
+  status        String    @default("생성") @db.VarChar(20)       // 생성/작성요청/작성중/취합/검토/완료
+  autoContent   Json?     @map("auto_content")                   // 자동 생성 데이터 (진척/이슈/리스크 등)
+  summaryNote   String?   @map("summary_note") @db.Text          // 관리자 총괄 소견
+  createdBy     String    @map("created_by") @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  completedAt   DateTime? @map("completed_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  sections      ReportTeamSection[]
+
+  @@index([projectId])
+  @@index([projectId, reportType])
+  @@map("report")
+}
+
+model ReportTeamSection {
+  sectionId     BigInt    @id @default(autoincrement()) @map("section_id")
+  reportId      BigInt    @map("report_id")
+  teamName      String    @map("team_name") @db.VarChar(100)     // 팀/파트명
+  writerId      String?   @map("writer_id") @db.VarChar(50)      // 작성 담당자
+  writerName    String?   @map("writer_name") @db.VarChar(100)
+  status        String    @default("미작성") @db.VarChar(20)     // 미작성/작성중/작성완료
+  achievements  String?   @db.Text                                // 금주(금월) 실적 (텍스트, 월간용)
+  plans         String?   @db.Text                                // 차주(차월) 계획 (텍스트, 월간용)
+  issues        String?   @db.Text                                // 이슈/건의사항
+  currentRemark String?   @map("current_remark") @db.Text         // 실적 비고
+  nextRemark    String?   @map("next_remark") @db.Text            // 계획 비고
+  currentTasks  Json?     @map("current_tasks")                   // 금주(금월) 태스크 [{taskId,taskName,content,schedule,progressRate}]
+  nextTasks     Json?     @map("next_tasks")                      // 차주(차월) 태스크 [{taskId,taskName,content,schedule,progressRate}]
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  report        Report    @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("report_team_section")
+}
+
+// ─── WorkSpace: 팀 웹폴더 ──────────────────────────────
+model WsFolder {
+  wsFolderId    BigInt    @id @default(autoincrement()) @map("ws_folder_id")
+  projectId     BigInt    @map("project_id")
+  parentId      BigInt?   @map("parent_id")
+  folderName    String    @map("folder_name") @db.VarChar(300)
+  teamDept      String    @map("team_dept") @db.VarChar(100)     // 소속 팀(부서)
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdBy     String    @map("created_by") @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  parent        WsFolder? @relation("WsFolderTree", fields: [parentId], references: [wsFolderId])
+  children      WsFolder[] @relation("WsFolderTree")
+  files         WsFile[]
+
+  @@index([projectId, teamDept])
+  @@index([parentId])
+  @@map("ws_folder")
+}
+
+model WsFile {
+  wsFileId      BigInt    @id @default(autoincrement()) @map("ws_file_id")
+  wsFolderId    BigInt    @map("ws_folder_id")
+  fileName      String    @map("file_name") @db.VarChar(300)
+  filePath      String    @map("file_path") @db.VarChar(500)
+  fileSize      BigInt    @default(0) @map("file_size")
+  mimeType      String?   @map("mime_type") @db.VarChar(100)
+  uploaderId    String    @map("uploader_id") @db.VarChar(50)
+  uploaderName  String?   @map("uploader_name") @db.VarChar(100)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  folder        WsFolder  @relation(fields: [wsFolderId], references: [wsFolderId], onDelete: Cascade)
+
+  @@index([wsFolderId])
+  @@map("ws_file")
+}
+
+// ─── WorkSpace: 팀 게시판 ──────────────────────────────
+model WsPost {
+  wsPostId      BigInt    @id @default(autoincrement()) @map("ws_post_id")
+  projectId     BigInt    @map("project_id")
+  teamDept      String    @map("team_dept") @db.VarChar(100)
+  title         String    @db.VarChar(300)
+  content       String?   @db.Text
+  isPinned      Boolean   @default(false) @map("is_pinned")
+  writerId      String    @map("writer_id") @db.VarChar(50)
+  writerName    String?   @map("writer_name") @db.VarChar(100)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  attachments   WsPostAttachment[]
+
+  @@index([projectId, teamDept])
+  @@map("ws_post")
+}
+
+model WsPostAttachment {
+  wsAttachId    BigInt    @id @default(autoincrement()) @map("ws_attach_id")
+  wsPostId      BigInt    @map("ws_post_id")
+  fileName      String    @map("file_name") @db.VarChar(300)
+  filePath      String    @map("file_path") @db.VarChar(500)
+  fileSize      BigInt    @default(0) @map("file_size")
+  mimeType      String?   @map("mime_type") @db.VarChar(100)
+
+  post          WsPost    @relation(fields: [wsPostId], references: [wsPostId], onDelete: Cascade)
+
+  @@index([wsPostId])
+  @@map("ws_post_attachment")
+}
+
+// ─── WorkSpace: 팀 할일(To-Do) ─────────────────────────
+model WsTodo {
+  wsTodoId      BigInt    @id @default(autoincrement()) @map("ws_todo_id")
+  projectId     BigInt    @map("project_id")
+  teamDept      String    @map("team_dept") @db.VarChar(100)
+  title         String    @db.VarChar(300)
+  description   String?   @db.Text
+  status        String    @default("할일") @db.VarChar(20)       // 할일/진행중/완료
+  priority      String    @default("보통") @db.VarChar(10)       // 긴급/높음/보통/낮음
+  dueDate       DateTime? @map("due_date") @db.Date
+  assigneeId    String?   @map("assignee_id") @db.VarChar(50)
+  assigneeName  String?   @map("assignee_name") @db.VarChar(100)
+  createdBy     String    @map("created_by") @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  completedAt   DateTime? @map("completed_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId, teamDept])
+  @@index([projectId, assigneeId])
+  @@map("ws_todo")
+}
+
+// ─── WorkSpace: 팀 메모/위키 ───────────────────────────
+model WsMemo {
+  wsMemoId      BigInt    @id @default(autoincrement()) @map("ws_memo_id")
+  projectId     BigInt    @map("project_id")
+  teamDept      String    @map("team_dept") @db.VarChar(100)
+  title         String    @db.VarChar(300)
+  content       String?   @db.Text                              // HTML (Tiptap)
+  category      String    @default("일반") @db.VarChar(50)      // 일반/개발컨벤션/서버정보/업무노하우/기타
+  isPinned      Boolean   @default(false) @map("is_pinned")
+  writerId      String    @map("writer_id") @db.VarChar(50)
+  writerName    String?   @map("writer_name") @db.VarChar(100)
+  lastEditorId  String?   @map("last_editor_id") @db.VarChar(50)
+  lastEditorName String?  @map("last_editor_name") @db.VarChar(100)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId, teamDept])
+  @@map("ws_memo")
+}
+
+// ─── 자료실 (대용량 파일 저장소) ────────────────────
+model LibraryFile {
+  fileId        BigInt    @id @default(autoincrement()) @map("file_id")
+  projectId     BigInt    @map("project_id")
+  category      String    @default("일반") @db.VarChar(50)      // 일반/설계자료/회의자료/교육자료/기타
+  title         String    @db.VarChar(300)
+  description   String?   @db.Text
+  fileName      String    @map("file_name") @db.VarChar(500)
+  filePath      String    @map("file_path") @db.VarChar(500)
+  fileSize      BigInt    @default(0) @map("file_size")
+  mimeType      String?   @map("mime_type") @db.VarChar(100)
+  downloadCount Int       @default(0) @map("download_count")
+  uploaderId    String    @map("uploader_id") @db.VarChar(50)
+  uploaderName  String?   @map("uploader_name") @db.VarChar(100)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, category])
+  @@map("library_file")
+}
+
+// ─── 프로젝트 첨부파일 ─────────────────────────────
+model ProjectFile {
+  pfId          BigInt    @id @default(autoincrement()) @map("pf_id")
+  projectId     BigInt    @map("project_id")
+  fileName      String    @map("file_name") @db.VarChar(500)
+  filePath      String    @map("file_path") @db.VarChar(500)
+  fileSize      BigInt    @default(0) @map("file_size")
+  fileType      String?   @map("file_type") @db.VarChar(50)    // 제안서/과업지시서/계약서/기타
+  uploaderId    String    @map("uploader_id") @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_file")
+}
+
+// ─── 프로젝트 팀(부서) ─────────────────────────────
+model ProjectTeam {
+  teamId        BigInt    @id @default(autoincrement()) @map("team_id")
+  projectId     BigInt    @map("project_id")
+  teamName      String    @map("team_name") @db.VarChar(100)
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project       Project   @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+
+  @@unique([projectId, teamName])
+  @@index([projectId])
+  @@map("project_team")
+}

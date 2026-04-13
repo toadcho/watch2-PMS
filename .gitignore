@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.prod
+*.tar
+*.tar.gz
+*.dump
+*.zip
+server/backups/
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key

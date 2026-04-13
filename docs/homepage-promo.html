@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WATCH2Project | 공공 SI 프로젝트관리의 새로운 기준</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Noto Sans KR', sans-serif; color: #222; line-height: 1.7; }
+
+  /* -- Hero -- */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #0d2137 0%, #1a3a5c 50%, #0d4a8a 100%);
+    overflow: hidden;
+    text-align: center;
+    color: #fff;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: url('https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1920&q=80') center/cover no-repeat;
+    opacity: 0.1;
+  }
+  .hero-content { position: relative; z-index: 1; max-width: 840px; padding: 40px 24px; }
+  .hero-badge {
+    display: inline-block; padding: 6px 20px; border-radius: 20px;
+    background: rgba(255,255,255,0.12); backdrop-filter: blur(8px);
+    font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+    margin-bottom: 28px; border: 1px solid rgba(255,255,255,0.2);
+  }
+  .hero-version {
+    display: inline-block; padding: 4px 14px; border-radius: 12px;
+    background: rgba(66,165,245,0.2); border: 1px solid rgba(66,165,245,0.4);
+    font-size: 12px; letter-spacing: 1px; margin-left: 10px; color: #42a5f5;
+  }
+  .hero h1 { font-size: 50px; font-weight: 900; line-height: 1.25; margin-bottom: 20px; }
+  .hero h1 span { color: #42a5f5; }
+  .hero p.tagline {
+    font-size: 19px; font-weight: 300; opacity: 0.9;
+    margin-bottom: 40px; line-height: 1.7;
+  }
+  .hero-cta {
+    display: inline-block; padding: 16px 44px; border-radius: 50px;
+    background: linear-gradient(135deg, #42a5f5, #1565c0);
+    color: #fff; text-decoration: none; font-size: 17px; font-weight: 700;
+    box-shadow: 0 8px 32px rgba(66,165,245,0.35);
+    transition: transform .2s, box-shadow .2s;
+  }
+  .hero-cta:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(66,165,245,0.5); }
+  .hero-highlights {
+    display: flex; justify-content: center; gap: 32px;
+    margin-top: 48px; flex-wrap: wrap;
+  }
+  .hero-highlights .hl {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; opacity: 0.85;
+  }
+  .hero-highlights .hl-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(255,255,255,0.1); display: flex;
+    align-items: center; justify-content: center; font-size: 16px;
+  }
+
+  /* -- Section common -- */
+  section { padding: 100px 24px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .section-label {
+    display: inline-block; font-size: 13px; font-weight: 700;
+    letter-spacing: 3px; text-transform: uppercase; color: #1565c0;
+    margin-bottom: 12px;
+  }
+  .section-title { font-size: 36px; font-weight: 900; margin-bottom: 16px; line-height: 1.3; }
+  .section-desc { font-size: 17px; color: #666; max-width: 680px; margin-bottom: 56px; }
+
+  /* -- Quote strip -- */
+  .quote-strip {
+    background: #0d2137; color: #fff; padding: 60px 24px; text-align: center;
+  }
+  .quote-strip blockquote {
+    max-width: 760px; margin: 0 auto;
+    font-size: 24px; font-weight: 300; font-style: italic;
+    line-height: 1.7; opacity: 0.95;
+  }
+  .quote-strip cite { display: block; margin-top: 16px; font-size: 14px; opacity: 0.6; font-style: normal; }
+
+  /* -- Features grid -- */
+  .features { background: #f8fafb; }
+  .features-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 32px;
+  }
+  .feature-card {
+    background: #fff; border-radius: 16px; padding: 36px 32px;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.06);
+    transition: transform .25s, box-shadow .25s;
+    border: 1px solid #eef2f5;
+  }
+  .feature-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.1); }
+  .feature-icon {
+    width: 56px; height: 56px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; margin-bottom: 20px;
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+  }
+  .feature-card h3 { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+  .feature-card p { font-size: 14px; color: #666; line-height: 1.7; }
+  .feature-card .badge-new {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    background: #e8f5e9; color: #2e7d32; font-size: 11px; font-weight: 700;
+    margin-left: 6px; vertical-align: middle;
+  }
+
+  /* -- Visual showcase -- */
+  .showcase { background: linear-gradient(180deg, #fff 0%, #f0f4f8 100%); }
+  .showcase-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center;
+  }
+  .showcase-img {
+    width: 100%; border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+  }
+  .showcase-text h3 { font-size: 26px; font-weight: 700; margin-bottom: 16px; }
+  .showcase-text p { font-size: 15px; color: #555; margin-bottom: 20px; }
+  .showcase-list { list-style: none; padding: 0; }
+  .showcase-list li {
+    padding: 8px 0; font-size: 15px; color: #444;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .showcase-list li::before { content: '\2713'; color: #1565c0; font-weight: 700; flex-shrink: 0; }
+
+  /* -- Stats bar -- */
+  .stats-bar {
+    background: linear-gradient(135deg, #0d3b66, #1a2a40);
+    color: #fff; padding: 72px 24px;
+  }
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 32px; text-align: center; max-width: 900px; margin: 0 auto;
+  }
+  .stat-item .stat-number { font-size: 48px; font-weight: 900; color: #42a5f5; }
+  .stat-item .stat-label { font-size: 14px; opacity: 0.8; margin-top: 4px; }
+
+  /* -- Workflow -- */
+  .workflow { background: #fff; }
+  .workflow-steps {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
+    position: relative;
+  }
+  .workflow-steps::before {
+    content: ''; position: absolute; top: 40px; left: 8%; right: 8%;
+    height: 3px; background: linear-gradient(90deg, #42a5f5, #1565c0, #fb8c00);
+    z-index: 0;
+  }
+  .wf-step { text-align: center; position: relative; z-index: 1; }
+  .wf-circle {
+    width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 16px;
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; box-shadow: 0 4px 16px rgba(21,101,192,0.15);
+    border: 3px solid #fff;
+  }
+  .wf-step h4 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .wf-step p { font-size: 12px; color: #888; }
+
+  /* -- Modules -- */
+  .modules { background: #f8fafb; }
+  .modules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; }
+  .mod-card {
+    text-align: center; padding: 36px 24px; border-radius: 16px;
+    background: #fff; border: 1px solid #eef2f5;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.05);
+    transition: transform .2s;
+  }
+  .mod-card:hover { transform: translateY(-3px); }
+  .mod-icon {
+    width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  .mod-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+  .mod-card .mod-code { font-size: 12px; color: #1565c0; margin-bottom: 10px; }
+  .mod-card p { font-size: 13px; color: #666; line-height: 1.6; }
+
+  /* -- Deploy -- */
+  .deploy { background: #f8fafb; }
+  .deploy-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px;
+  }
+  .deploy-card {
+    background: #fff; border-radius: 14px; padding: 32px 24px;
+    border: 1px solid #eef2f5; text-align: center;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+  }
+  .deploy-card .dc-icon {
+    width: 52px; height: 52px; border-radius: 12px; margin: 0 auto 16px;
+    display: flex; align-items: center; justify-content: center; font-size: 24px;
+  }
+  .deploy-card .dc-icon.blue { background: #e3f2fd; color: #1976d2; }
+  .deploy-card .dc-icon.green { background: #e8f5e9; color: #2e7d32; }
+  .deploy-card .dc-icon.purple { background: #f3e5f5; color: #7b1fa2; }
+  .deploy-card .dc-icon.orange { background: #fff3e0; color: #e65100; }
+  .deploy-card h4 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .deploy-card p { font-size: 13px; color: #666; line-height: 1.6; }
+
+  /* -- CTA -- */
+  .cta-section {
+    background: linear-gradient(135deg, #0d3b66, #0d2137);
+    color: #fff; text-align: center; padding: 100px 24px;
+    position: relative; overflow: hidden;
+  }
+  .cta-section::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: url('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1920&q=80') center/cover no-repeat;
+    opacity: 0.08;
+  }
+  .cta-section .container { position: relative; z-index: 1; }
+  .cta-section h2 { font-size: 38px; font-weight: 900; margin-bottom: 16px; }
+  .cta-section p { font-size: 18px; opacity: 0.85; margin-bottom: 36px; max-width: 600px; margin-left: auto; margin-right: auto; }
+  .cta-btn {
+    display: inline-block; padding: 16px 48px; border-radius: 50px;
+    background: #fff; color: #0d3b66; text-decoration: none;
+    font-size: 17px; font-weight: 700;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    transition: transform .2s;
+  }
+  .cta-btn:hover { transform: translateY(-2px); }
+
+  /* -- Footer -- */
+  footer {
+    background: #0a1018; color: rgba(255,255,255,0.5);
+    padding: 40px 24px; text-align: center; font-size: 13px;
+  }
+  footer a { color: #42a5f5; text-decoration: none; }
+
+  /* -- Responsive -- */
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 32px; }
+    .hero p.tagline { font-size: 16px; }
+    .section-title { font-size: 28px; }
+    .showcase-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .workflow-steps { grid-template-columns: 1fr; gap: 24px; }
+    .workflow-steps::before { display: none; }
+    .modules-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">Project Management System <span class="hero-version">v1.0</span></div>
+    <h1>공공 SI 프로젝트관리의<br>새로운 기준, <span>WATCH2Project</span></h1>
+    <p class="tagline">
+      WBS/일정, 산출물, 진척관리, 보고서, 개발진척, 감리 대응까지.<br>
+      방법론에 따른 산출물 테일러링 정의 기반<br>통합 프로젝트관리 플랫폼.
+    </p>
+    <a href="#features" class="hero-cta">주요 기능 살펴보기 &rarr;</a>
+    <div class="hero-highlights">
+      <div class="hl"><div class="hl-icon">&#x1f512;</div> 폐쇄망 On-Premise 배포</div>
+    </div>
+  </div>
+</section>
+
+<!-- QUOTE -->
+<div class="quote-strip">
+  <blockquote>
+    "좋은 계획은 성공의 절반이다. 나머지 절반은 실행과 관리에 달려있다."
+    <cite>&mdash; 프로젝트 관리의 원칙</cite>
+  </blockquote>
+</div>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label">Core Features</div>
+    <div class="section-title">왜 WATCH2Project인가?</div>
+    <div class="section-desc">
+      프로젝트 착수부터 종료까지, 공공 SI의 모든 관리 영역을 하나의 플랫폼에서.
+      역할 기반 접근 제어와 실시간 현황 모니터링으로 프로젝트 성공률을 극대화합니다.
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4ca;</div>
+        <h3>WBS/일정 관리</h3>
+        <p>트리 구조 WBS 편성, 간트차트, 마일스톤, 선후행 관계, 영업일 기반 자동 진척률 계산. 엑셀 Import/Export와 드래그 일정 변경을 지원합니다.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4c1;</div>
+        <h3>산출물 관리</h3>
+        <p>방법론별 산출물 테일러링, 버전 이력, 다단계 승인 워크플로(PL→QA→PMO→고객), 감리 체크리스트 연동. 산출물 누락을 자동 검출합니다.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4c8;</div>
+        <h3>공정 진척현황 <span class="badge-new">S-Curve</span></h3>
+        <p>업무별 가중 평균 진척률, 계획 대비 실적 S-Curve 차트, 기준일별 누적 진척 추이. 주차별 데이터 테이블과 업무별/담당자별 분석을 제공합니다.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4bb;</div>
+        <h3>개발진척현황 <span class="badge-new">NEW</span></h3>
+        <p>1,500+ 프로그램 단위 개발 목록 관리, 엑셀 일괄 등록, 담당자별 완료일 등록, S-Curve 통계, 업무별/담당자별 완료율 차트. 프로젝트 캘린더 연동.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4dd;</div>
+        <h3>주간/월간보고</h3>
+        <p>자동 데이터 수집(진척/이슈/위험), 팀별 실적/계획 작성 워크플로, 작성 요청→작성중→취합→완료. DOCX 가로 문서 다운로드와 알림 연동.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x26a0;&#xfe0f;</div>
+        <h3>이슈/리스크 관리</h3>
+        <p>7개 범주별 이슈/리스크 등록, 상태 변경 이력, 중요도/긴급성 매트릭스, 공유 대상 관리. 주간보고 및 대시보드와 자동 연동.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4c5;</div>
+        <h3>프로젝트 캘린더</h3>
+        <p>한국 공휴일/주말 표시, 마일스톤 타임라인, 이벤트 등록(감리/회의/릴리즈), 날짜 선택 시 주말/공휴일 자동 차단. PmsDatePicker 공통 컴포넌트.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f4cb;</div>
+        <h3>요구사항 관리</h3>
+        <p>요구사항 ID 체계, 진행상태(수용/제외/통합/대체), 변경이력 추적, 베이스라인 관리. 엑셀 Import/Export와 개발 프로그램 매핑.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f514;</div>
+        <h3>실시간 알림 <span class="badge-new">NEW</span></h3>
+        <p>헤더 벨 아이콘 알림 배지, 1분 자동 폴링, 주간보고 작성 요청/완료 알림, 대시보드 위젯. 읽음 처리 및 전체 읽음 기능.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f3e2;</div>
+        <h3>PMO 통합 대시보드</h3>
+        <p>프로젝트 현황, 진척률, 결함/이슈/위험 요약, 승인 대기, 내 태스크, 일정/마일스톤 위젯. 위젯 설정/접기/펼치기 커스터마이징.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1f50d;</div>
+        <h3>감리 대응</h3>
+        <p>공정별 필수 산출물 매핑, 감리 체크리스트(적합/부적합/조건부), 감리원 전용 뷰, 감리보고서 자동 생성. 방법론에 따른 산출물 테일러링 정의.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2699;&#xfe0f;</div>
+        <h3>시스템 관리</h3>
+        <p>사용자/권한(7개 역할), 공통코드, 감사로그(전 구간 CUD 기록), 방법론/산출물 정의, 승인 프로세스 설정, 업무별 가중치, DB 백업.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SHOWCASE 1: Dashboard -->
+<section class="showcase">
+  <div class="container">
+    <div class="showcase-grid">
+      <div>
+        <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&q=80"
+             alt="Dashboard" class="showcase-img">
+      </div>
+      <div class="showcase-text">
+        <div class="section-label">Dashboard</div>
+        <h3>한눈에 보는 프로젝트 현황</h3>
+        <p>
+          프로젝트의 모든 지표를 실시간으로 모니터링합니다.
+          역할별 맞춤 위젯과 일정/마일스톤 통합 캘린더로
+          프로젝트 상태를 빠르게 파악합니다.
+        </p>
+        <ul class="showcase-list">
+          <li>전체 진척률 (계획 vs 실적) 실시간 표시</li>
+          <li>미해결 이슈/리스크/결함 현황</li>
+          <li>승인 대기 산출물 즉시 승인/반려</li>
+          <li>내 진행 태스크 목록 + WBS 바로가기</li>
+          <li>일정/마일스톤 위젯 (캘린더 연동)</li>
+          <li>새 알림 위젯 (주간보고 요청 등)</li>
+          <li>위젯 표시/숨김 설정 (localStorage 유지)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS BAR -->
+<section class="stats-bar">
+  <div class="stats-grid">
+    <div class="stat-item">
+      <div class="stat-number">8+</div>
+      <div class="stat-label">핵심 관리 모듈</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">1,500+</div>
+      <div class="stat-label">프로그램 단위 진척 관리</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">7</div>
+      <div class="stat-label">역할 기반 권한 체계</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">100%</div>
+      <div class="stat-label">폐쇄망 오프라인 운영</div>
+    </div>
+  </div>
+</section>
+
+<!-- WORKFLOW -->
+<section class="workflow">
+  <div class="container">
+    <div class="section-label" style="text-align:center;display:block;">Workflow</div>
+    <div class="section-title" style="text-align:center;">프로젝트 라이프사이클 전체를 관리</div>
+    <div class="section-desc" style="text-align:center;margin:0 auto 56px;">
+      착수부터 종료까지, 각 단계에서 필요한 관리 도구를 빠짐없이 제공합니다.
+    </div>
+    <div class="workflow-steps">
+      <div class="wf-step">
+        <div class="wf-circle">&#x1f4cb;</div>
+        <h4>착수/계획</h4>
+        <p>WBS 편성 &middot; 일정 수립</p>
+      </div>
+      <div class="wf-step">
+        <div class="wf-circle">&#x1f50d;</div>
+        <h4>분석/설계</h4>
+        <p>요구사항 &middot; 산출물 관리</p>
+      </div>
+      <div class="wf-step">
+        <div class="wf-circle">&#x1f4bb;</div>
+        <h4>구현</h4>
+        <p>개발진척 &middot; 프로그램 관리</p>
+      </div>
+      <div class="wf-step">
+        <div class="wf-circle">&#x1f41b;</div>
+        <h4>시험</h4>
+        <p>결함 추적 &middot; RTM</p>
+      </div>
+      <div class="wf-step">
+        <div class="wf-circle">&#x1f4ca;</div>
+        <h4>모니터링</h4>
+        <p>S-Curve &middot; 주간보고</p>
+      </div>
+      <div class="wf-step">
+        <div class="wf-circle">&#x2705;</div>
+        <h4>이행/종료</h4>
+        <p>감리 대응 &middot; 완료보고</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MODULES -->
+<section class="modules">
+  <div class="container">
+    <div class="section-label" style="text-align:center;display:block;">Modules</div>
+    <div class="section-title" style="text-align:center;">8대 핵심 모듈</div>
+    <div class="section-desc" style="text-align:center;margin:0 auto 56px;">
+      공공 SI 프로젝트에 필요한 모든 관리 영역을 모듈화하여 제공합니다.
+    </div>
+    <div class="modules-grid">
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#e3f2fd; color:#1565c0;">&#x1f4c1;</div>
+        <div class="mod-code">M1</div>
+        <h3>프로젝트 관리</h3>
+        <p>기본정보, 투입인력, 예산, 위험</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#e8f5e9; color:#2e7d32;">&#x1f4ca;</div>
+        <div class="mod-code">M2</div>
+        <h3>일정/WBS</h3>
+        <p>WBS 트리, 간트, 진척률, 마일스톤</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#fff3e0; color:#e65100;">&#x1f4c4;</div>
+        <div class="mod-code">M3</div>
+        <h3>산출물 관리</h3>
+        <p>버전, 승인 워크플로, 감리 체크</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#fce4ec; color:#c62828;">&#x1f41b;</div>
+        <div class="mod-code">M4</div>
+        <h3>시험/결함</h3>
+        <p>watch2-TMS 연동</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#f3e5f5; color:#7b1fa2;">&#x1f4ac;</div>
+        <div class="mod-code">M5</div>
+        <h3>의사소통</h3>
+        <p>이슈, 회의록, 공지, 자료실</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#eceff1; color:#455a64;">&#x2699;&#xfe0f;</div>
+        <div class="mod-code">M6</div>
+        <h3>시스템 관리</h3>
+        <p>사용자, 권한, 코드, 감사로그</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#e3f2fd; color:#0d47a1;">&#x1f3e2;</div>
+        <div class="mod-code">C1</div>
+        <h3>PMO 대시보드</h3>
+        <p>통합 현황, 위젯 커스터마이징</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-icon" style="background:#e8eaf6; color:#283593;">&#x1f4dd;</div>
+        <div class="mod-code">C2</div>
+        <h3>보고서 엔진</h3>
+        <p>주간/월간/감리보고, DOCX</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SHOWCASE 2: Reports -->
+<section class="showcase">
+  <div class="container">
+    <div class="showcase-grid">
+      <div class="showcase-text">
+        <div class="section-label">Weekly Report</div>
+        <h3>주간보고, 자동화된 워크플로</h3>
+        <p>
+          PMS관리자가 보고서를 생성하고 팀에 작성 요청을 발송하면,
+          각 팀장이 실적/계획을 작성하고, 관리자가 취합하여 최종 완료합니다.
+          WBS 태스크가 자동으로 수집되어 작성 부담을 최소화합니다.
+        </p>
+        <ul class="showcase-list">
+          <li>6단계 워크플로: 생성→작성요청→작성중→취합→검토→완료</li>
+          <li>WBS depth 4 기준 금주/차주 태스크 자동 수집</li>
+          <li>팀별 작성 현황 실시간 모니터링</li>
+          <li>임시저장 / 작성완료 분리 (알림 연동)</li>
+          <li>내 팀만 보기 ON/OFF 스위치</li>
+          <li>DOCX 가로형 문서 다운로드 (실적/계획 병렬 배치)</li>
+          <li>전체 진척률 + 팀별 진척률 + 업무별 진척률 표시</li>
+          <li>개발진척현황 (관리자 설정으로 ON/OFF)</li>
+        </ul>
+      </div>
+      <div>
+        <img src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800&q=80"
+             alt="Weekly Report" class="showcase-img">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUOTE 2 -->
+<div class="quote-strip">
+  <blockquote>
+    "측정할 수 있으면 관리할 수 있고, 관리할 수 있으면 개선할 수 있다."
+    <cite>&mdash; Peter Drucker</cite>
+  </blockquote>
+</div>
+
+<!-- SHOWCASE 3: Dev Progress -->
+<section class="showcase">
+  <div class="container">
+    <div class="showcase-grid">
+      <div>
+        <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80"
+             alt="Dev Progress S-Curve" class="showcase-img">
+      </div>
+      <div class="showcase-text">
+        <div class="section-label">Development Progress</div>
+        <h3>개발진척, S-Curve로 한눈에</h3>
+        <p>
+          1,500개 이상의 프로그램을 업무별로 관리하고,
+          계획 대비 실적을 S-Curve 차트로 시각화합니다.
+          기준일 슬라이더로 시간 흐름에 따른 진척 변화를 추적합니다.
+        </p>
+        <ul class="showcase-list">
+          <li>엑셀 일괄 등록/다운로드 (초기화/추가 모드)</li>
+          <li>프로그램별 상태 자동 유추 (미착수/진행중/완료/지연)</li>
+          <li>S-Curve: 업무별/담당자별 필터, 기준일 슬라이더</li>
+          <li>기준일 기반 통계 카드 (전체/계획/실적/달성율)</li>
+          <li>UserTreePicker 담당자 선택</li>
+          <li>요구사항 매핑 (수용 건만)</li>
+          <li>WBS depth 2 업무구분 드롭다운</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SYNERGY: WATCH2Project + WATCH2Defect -->
+<section class="showcase" style="background: linear-gradient(180deg, #e8eaf6 0%, #fff 100%);">
+  <div class="container">
+    <div class="section-label" style="text-align:center;display:block;">Synergy</div>
+    <div class="section-title" style="text-align:center;">WATCH2Project + WATCH2Defect</div>
+    <div class="section-desc" style="text-align:center;margin:0 auto 48px;">
+      프로젝트 관리와 품질 관리를 하나로. 두 제품의 결합으로 공공 SI 프로젝트의 전 생명주기를 빈틈없이 관리합니다.
+    </div>
+    <div class="showcase-grid">
+      <div>
+        <div style="background:#fff; border-radius:16px; padding:40px 32px; box-shadow:0 8px 40px rgba(0,0,0,0.08); border:1px solid #e0e0e0;">
+          <div style="text-align:center; margin-bottom:32px;">
+            <div style="display:inline-flex; align-items:center; gap:20px; flex-wrap:wrap; justify-content:center;">
+              <div style="padding:12px 24px; border-radius:12px; background:linear-gradient(135deg,#1565c0,#0d47a1); color:#fff; font-size:18px; font-weight:900;">WATCH2Project</div>
+              <div style="font-size:32px; color:#fb8c00;">+</div>
+              <div style="padding:12px 24px; border-radius:12px; background:linear-gradient(135deg,#4fc3f7,#0288d1); color:#fff; font-size:18px; font-weight:900;">WATCH2Defect</div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:16px; align-items:start;">
+            <div>
+              <h4 style="font-size:15px; font-weight:700; color:#1565c0; margin-bottom:12px; text-align:center;">&#x1f4cb; 프로젝트 관리</h4>
+              <ul style="list-style:none; padding:0; font-size:13px; color:#555; line-height:2;">
+                <li>&#x2022; WBS/일정/간트차트</li>
+                <li>&#x2022; 산출물 승인 워크플로</li>
+                <li>&#x2022; 공정 진척 S-Curve</li>
+                <li>&#x2022; 개발진척현황 관리</li>
+                <li>&#x2022; 주간/월간보고 자동화</li>
+                <li>&#x2022; 이슈/리스크 관리</li>
+                <li>&#x2022; 프로젝트 캘린더</li>
+              </ul>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px; padding-top:40px;">
+              <div style="width:3px; height:60px; background:linear-gradient(180deg, #1565c0, #fb8c00, #0288d1); border-radius:2px;"></div>
+              <div style="width:48px; height:48px; border-radius:50%; background:linear-gradient(135deg,#fb8c00,#f57c00); display:flex; align-items:center; justify-content:center; color:#fff; font-size:20px; box-shadow:0 4px 16px rgba(251,140,0,0.3);">&#x1f517;</div>
+              <div style="font-size:11px; font-weight:700; color:#fb8c00;">API 연동</div>
+              <div style="width:3px; height:60px; background:linear-gradient(180deg, #0288d1, #fb8c00, #1565c0); border-radius:2px;"></div>
+            </div>
+            <div>
+              <h4 style="font-size:15px; font-weight:700; color:#0288d1; margin-bottom:12px; text-align:center;">&#x1f41b; 품질/테스트 관리</h4>
+              <ul style="list-style:none; padding:0; font-size:13px; color:#555; line-height:2;">
+                <li>&#x2022; 시나리오/케이스 관리</li>
+                <li>&#x2022; 결함 추적 워크플로</li>
+                <li>&#x2022; RTM 추적 매트릭스</li>
+                <li>&#x2022; 관통테스트 모니터링</li>
+                <li>&#x2022; 실시간 품질 대시보드</li>
+                <li>&#x2022; 테스트 통계/리포트</li>
+                <li>&#x2022; 엑셀 일괄 등록</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="showcase-text">
+        <div class="section-label">Integration Benefits</div>
+        <h3>1 + 1 &gt; 2, 통합의 시너지</h3>
+        <p>
+          프로젝트 관리(WATCH2Project)와 품질 관리(WATCH2Defect)를
+          연동하면, 개별 운영 대비 훨씬 강력한 관리 체계를 구축할 수 있습니다.
+        </p>
+        <ul class="showcase-list">
+          <li><strong>WBS ↔ 테스트케이스 연동</strong> — 태스크별 테스트 커버리지 자동 추적, 산출물 승인 시 TC 실행률 검증</li>
+          <li><strong>요구사항 ↔ RTM 통합</strong> — 요구사항 ID로 설계→개발→테스트→결함 전 구간 추적, 누락 자동 검출</li>
+          <li><strong>진척률 ↔ 품질 지표 통합</strong> — 주간보고에 결함 현황/테스트 실행률 자동 포함, S-Curve에 품질 메트릭 병행 표시</li>
+          <li><strong>감리 대응 원스톱</strong> — 산출물 현황 + 테스트 결과 + 결함 조치율을 하나의 감리 보고서로 통합 생성</li>
+          <li><strong>대시보드 통합 뷰</strong> — 프로젝트 진척, 개발 완료율, 테스트 성공률, 미해결 결함을 단일 화면에서 모니터링</li>
+          <li><strong>동일 기술 스택</strong> — Vue 3 + Node.js + PostgreSQL, Docker Compose로 함께 배포, 사용자/인증 통합</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEPLOYMENT -->
+<section class="deploy">
+  <div class="container">
+    <div class="section-label" style="text-align:center;display:block;">Technology & Deployment</div>
+    <div class="section-title" style="text-align:center;">검증된 기술, 유연한 배포</div>
+    <div class="section-desc" style="text-align:center;margin:0 auto 56px;">
+      망분리 공공기관 환경에서도 Docker 기반으로 간편하게 구축합니다.
+    </div>
+    <div class="deploy-grid">
+      <div class="deploy-card">
+        <div class="dc-icon blue">&#x1f4e6;</div>
+        <h4>Docker Compose</h4>
+        <p>Frontend, Backend, DB, Redis를 하나의 명령으로 구축. Nginx 리버스 프록시와 SSL/TLS를 포함합니다.</p>
+      </div>
+      <div class="deploy-card">
+        <div class="dc-icon green">&#x1f512;</div>
+        <h4>폐쇄망 On-Premise</h4>
+        <p>이미지 export/import로 인터넷 없이 배포. 공공기관 보안 요건을 충족합니다.</p>
+      </div>
+      <div class="deploy-card">
+        <div class="dc-icon purple">&#x1f5a5;&#xfe0f;</div>
+        <h4>기술 스택</h4>
+        <p>Vue 3 + TypeScript + Vuetify 3 / Node.js + Express + Prisma / PostgreSQL 16 + Redis 7</p>
+      </div>
+      <div class="deploy-card">
+        <div class="dc-icon orange">&#x1f4c5;</div>
+        <h4>공휴일 캘린더</h4>
+        <p>한국 법정공휴일(2025~2030) 내장, 주말/공휴일 자동 차단, PmsDatePicker 전역 적용.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="container">
+    <h2>프로젝트 관리, 더 이상 엑셀에 머무르지 마세요.</h2>
+    <p>WATCH2Project와 함께 공공 SI 프로젝트 관리의 새로운 기준을 경험하세요.</p>
+    <a href="#" class="cta-btn">도입 문의하기</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>&copy; 2026 (주)WATCH2 &mdash; WATCH2Project v1.0 &mdash; All rights reserved.</p>
+  <p style="margin-top:8px;">
+    Images by <a href="https://unsplash.com" target="_blank">Unsplash</a> (Free License)
+  </p>
+</footer>
+
+</body>
+</html>
