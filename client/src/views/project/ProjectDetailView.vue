@@ -467,20 +467,46 @@ async function saveApprovalSettings() {
 const bizWeights = ref<any[]>([])
 const bizWeightsSaved = ref<any[]>([])
 const bizLocked = ref(false)
-const bizForceUnlock = ref(false)
+const BIZ_UNLOCK_KEY = `pms-biz-force-unlock-${projectId}`
+const bizForceUnlock = ref(localStorage.getItem(BIZ_UNLOCK_KEY) === '1')
+function toggleAllLock(unlock: boolean) {
+  bizForceUnlock.value = unlock
+  wbsForceUnlock.value = unlock
+  if (unlock) {
+    localStorage.setItem(BIZ_UNLOCK_KEY, '1')
+    localStorage.setItem(WBS_UNLOCK_KEY, '1')
+  } else {
+    localStorage.removeItem(BIZ_UNLOCK_KEY)
+    localStorage.removeItem(WBS_UNLOCK_KEY)
+  }
+}
 const bizDirty = ref(false)
 const bizSaving = ref(false)
 const bizWeightTotal = computed(() => bizWeights.value.reduce((s, b) => s + (Number(b.bizWeight) || 0), 0))
+
+// WBS 화면 잠금 강제 해제 (스케줄/가중치 자동산정 버튼용)
+const WBS_UNLOCK_KEY = `pms-wbs-force-unlock-${projectId}`
+const wbsForceUnlock = ref(localStorage.getItem(WBS_UNLOCK_KEY) === '1')
+function toggleWbsForceUnlock() {
+  wbsForceUnlock.value = !wbsForceUnlock.value
+  if (wbsForceUnlock.value) localStorage.setItem(WBS_UNLOCK_KEY, '1')
+  else localStorage.removeItem(WBS_UNLOCK_KEY)
+}
+const activeBizWeights = computed(() => bizWeights.value.filter(b => !b.excludeWeight))
+const activeBizWeightTotal = computed(() => activeBizWeights.value.reduce((s, b) => s + (Number(b.bizWeight) || 0), 0))
+const progressCalcMode = ref<'A' | 'B'>('A')
 
 async function fetchBizWeights() {
   try {
     const { data: res } = await (await import('@/services/api')).default.get(`/projects/${projectId}/wbs/business-weights`)
     if (res.success) {
       bizLocked.value = res.data.locked
-      bizForceUnlock.value = false
+      if (res.data.defaultPhaseWeights) phaseWeightsForm.value = { ...res.data.defaultPhaseWeights }
+      if (res.data.progressCalcMode) progressCalcMode.value = res.data.progressCalcMode
       const list = res.data.businesses.map((b: any) => ({
         ...b,
-        phaseWeights: b.phaseWeights || { ...phaseWeightsForm.value },
+        excludeWeight: !!b.excludeWeight,
+        phaseWeights: b.excludeWeight ? null : (b.phaseWeights || { ...phaseWeightsForm.value }),
       }))
       bizWeights.value = JSON.parse(JSON.stringify(list))
       bizWeightsSaved.value = JSON.parse(JSON.stringify(list))
@@ -491,11 +517,20 @@ async function fetchBizWeights() {
 
 function bizLocalUpdate() { bizDirty.value = true }
 
-function bizApplyDefaults() {
+function onPhaseWeightChange() {
+  // NaN/빈값 → 0 변환
+  for (const p of phaseList) {
+    if (!phaseWeightsForm.value[p] && phaseWeightsForm.value[p] !== 0) phaseWeightsForm.value[p] = 0
+  }
+  // 상단 단계 가중치 변경 → 단계 적용 업무에 동기화
   for (const b of bizWeights.value) {
-    b.phaseWeights = { ...phaseWeightsForm.value }
+    if (!b.excludeWeight) b.phaseWeights = { ...phaseWeightsForm.value }
   }
   bizDirty.value = true
+}
+
+function bizApplyDefaults() {
+  onPhaseWeightChange()
 }
 
 function bizPhaseTotal(b: any) {
@@ -504,25 +539,26 @@ function bizPhaseTotal(b: any) {
 
 async function saveBizWeights() {
   // validation
-  if (Math.round(bizWeightTotal.value) !== 100) {
-    await showAlert(`업무 가중치 합계가 ${bizWeightTotal.value}%입니다. 100%여야 합니다.`); return
+  // 업무 가중치 합계 검증 (A안: 전체, B안: 단계적용 업무만)
+  const targetBiz = progressCalcMode.value === 'B' ? activeBizWeights.value : bizWeights.value
+  const targetTotal = targetBiz.reduce((s, b) => s + (Number(b.bizWeight) || 0), 0)
+  if (Math.round(targetTotal) !== 100) {
+    await showAlert(`업무 가중치 합계가 ${targetTotal}%입니다. 100%여야 합니다.`); return
   }
-  for (const b of bizWeights.value) {
-    const pt = bizPhaseTotal(b)
-    if (Math.round(pt) !== 100) {
-      await showAlert(`"${b.taskName}"의 단계 가중치 합계가 ${pt}%입니다. 100%여야 합니다.`); return
-    }
+  // 단계별 가중치 validation — 합계 100% + 모든 단계 1% 이상
+  const emptyPhases = phaseList.filter(p => !phaseWeightsForm.value[p] || phaseWeightsForm.value[p] <= 0)
+  if (emptyPhases.length) {
+    await showAlert(`다음 단계에 가중치가 설정되지 않았습니다: ${emptyPhases.join(', ')}\n\n모든 단계(분석~이행)에 가중치를 부여해야 합니다.`); return
   }
-  // 단계별 가중치 validation
   if (phaseWeightTotal.value !== 100) {
-    await showAlert(`기본 단계 가중치 합계가 ${phaseWeightTotal.value}%입니다. 100%여야 합니다.`); return
+    await showAlert(`단계 가중치 합계가 ${phaseWeightTotal.value}%입니다. 100%여야 합니다.`); return
   }
   bizSaving.value = true
   try {
-    // 단계별 가중치도 함께 저장
-    await projectService.update(projectId, { phaseWeights: phaseWeightsForm.value })
     const { data: res } = await (await import('@/services/api')).default.put(`/projects/${projectId}/wbs/business-weights`, {
-      businesses: bizWeights.value.map(b => ({ taskId: b.taskId, bizWeight: Number(b.bizWeight), phaseWeights: b.phaseWeights })),
+      businesses: bizWeights.value.map(b => ({ taskId: b.taskId, bizWeight: Number(b.bizWeight), excludeWeight: !!b.excludeWeight })),
+      phaseWeights: phaseWeightsForm.value,
+      progressCalcMode: progressCalcMode.value,
       forceUnlock: bizForceUnlock.value,
     })
     if (res.success) {
@@ -539,7 +575,6 @@ async function cancelBizWeights() {
   if (bizDirty.value && !(await showConfirm('변경 내용을 취소하시겠습니까?'))) return
   bizWeights.value = JSON.parse(JSON.stringify(bizWeightsSaved.value))
   bizDirty.value = false
-  bizForceUnlock.value = false
 }
 
 // ─── 산출물 정의 ───
@@ -1555,20 +1590,33 @@ watch([tab, () => project.value], ([v]) => {
 
               <v-spacer />
               <v-chip v-if="bizLocked && !bizForceUnlock" color="error" size="x-small" variant="tonal"><v-icon start size="12">mdi-lock</v-icon>잠금</v-chip>
-              <v-btn v-if="bizLocked && !bizForceUnlock && isPmsAdmin" size="x-small" variant="text" color="error" @click="bizForceUnlock = true">잠금 해제</v-btn>
+              <v-btn v-if="bizLocked && !bizForceUnlock && isPmsAdmin" size="x-small" variant="text" color="error" @click="toggleAllLock(true)">잠금 해제</v-btn>
               <v-chip v-if="bizForceUnlock" color="warning" size="x-small" variant="tonal"><v-icon start size="12">mdi-lock-open</v-icon>잠금 해제됨</v-chip>
+              <v-btn v-if="bizForceUnlock && isPmsAdmin" size="x-small" variant="text" color="success" @click="toggleAllLock(false)">잠금 복원</v-btn>
             </div>
+            <v-alert v-if="bizForceUnlock" type="warning" variant="tonal" density="compact" class="mb-2">
+              <span style="font-size:var(--pms-font-body)">가중치 설정 및 WBS 스케줄/가중치 자동산정이 잠금 해제 상태입니다. 실적이 등록된 프로젝트에서 변경하면 진척률이 왜곡될 수 있습니다.</span>
+            </v-alert>
             <div class="settings-guide">
               <v-icon size="14" color="info" class="mr-1">mdi-information-outline</v-icon>
-              <b>공정진척 현황</b> 및 <b>대시보드</b>의 진척률 산정에 사용됩니다. WBS/일정 관리에서 등록한 depth-2 업무 단위로 가중치를 배분합니다. 업무별 가중치 합계와 각 업무의 단계별 가중치 합계가 각각 100%여야 합니다.
+              <b>공정진척 현황</b> 및 <b>대시보드</b>의 진척률 산정에 사용됩니다. 업무별 가중치 합계 = 100%. 단계 가중치는 응용업무에 일괄 적용됩니다.
             </div>
 
-          <!-- 기본 단계 가중치 (인라인) -->
+          <!-- 공정율 산정 방식 -->
+          <div class="d-flex align-center ga-3 mb-2 pa-2" style="background:var(--pms-surface-variant, #f9f9f9); border-radius:var(--pms-radius)">
+            <span style="font-size:11px; font-weight:600">공정율 산정:</span>
+            <v-radio-group v-model="progressCalcMode" inline hide-details density="compact" class="mt-0" @update:model-value="bizDirty = true">
+              <v-radio label="전체 업무 포함 (A)" value="A" density="compact" />
+              <v-radio label="응용업무만 (B)" value="B" density="compact" />
+            </v-radio-group>
+          </div>
+
+          <!-- 단계 가중치 (인라인) -->
           <div class="d-flex align-center flex-wrap ga-2 mb-3 pa-2" style="background:var(--pms-surface-variant, #f9f9f9); border-radius:var(--pms-radius)">
             <span style="font-size:11px; font-weight:600">단계 가중치:</span>
             <span v-for="phase in phaseList" :key="phase" class="d-flex align-center">
               <span style="font-size:10px; color:#666">{{ phase }}</span>
-              <input type="number" class="weight-input ml-1" style="width:40px" v-model.number="phaseWeightsForm[phase]" @input="bizDirty = true" />
+              <input type="number" class="weight-input ml-1" style="width:40px" v-model.number="phaseWeightsForm[phase]" @input="onPhaseWeightChange()" />
             </span>
             <span style="font-size:10px" :class="phaseWeightTotal === 100 ? 'text-success' : 'text-error'">= {{ phaseWeightTotal }}%</span>
           </div>
@@ -1581,6 +1629,7 @@ watch([tab, () => project.value], ([v]) => {
             <table class="biz-weight-table">
               <thead>
                 <tr>
+                  <th style="width:60px">단계<br>적용</th>
                   <th style="width:30px">WBS</th>
                   <th style="text-align:left">업무명</th>
                   <th style="width:70px">업무<br>가중치</th>
@@ -1589,9 +1638,20 @@ watch([tab, () => project.value], ([v]) => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="b in bizWeights" :key="b.taskId">
+                <tr v-for="b in bizWeights" :key="b.taskId" :style="b.excludeWeight ? 'background:#fafafa' : ''">
+                  <td class="text-center">
+                    <v-switch
+                      :model-value="!b.excludeWeight" hide-details density="compact" color="success"
+                      :disabled="bizLocked && !bizForceUnlock"
+                      @update:model-value="(v: any) => { b.excludeWeight = !v; bizLocalUpdate() }"
+                      style="transform:scale(0.7); margin:0; padding:0"
+                    />
+                  </td>
                   <td class="text-caption text-grey">{{ b.wbsCode }}</td>
-                  <td>{{ b.taskName }}</td>
+                  <td>
+                    {{ b.taskName }}
+                    <v-chip v-if="b.excludeWeight" size="x-small" variant="tonal" color="grey" class="ml-1">단계 미적용</v-chip>
+                  </td>
                   <td class="text-center">
                     <input
                       type="number" min="0" max="100" step="5"
@@ -1602,23 +1662,21 @@ watch([tab, () => project.value], ([v]) => {
                     />
                   </td>
                   <td v-for="p in phaseList" :key="p" class="text-center">
-                    <input
-                      type="number" min="0" max="100" step="5"
-                      class="weight-input"
-                      :value="b.phaseWeights[p] || 0"
-                      :disabled="bizLocked && !bizForceUnlock"
-                      @input="b.phaseWeights[p] = Number(($event.target as HTMLInputElement).value); bizLocalUpdate()"
-                    />
+                    <template v-if="!b.excludeWeight">
+                      <span style="font-size:11px; color:var(--pms-text-secondary)">{{ phaseWeightsForm[p] || 0 }}</span>
+                    </template>
+                    <template v-else><span style="font-size:11px; color:#ccc">-</span></template>
                   </td>
-                  <td class="text-center" :class="bizPhaseTotal(b) === 100 ? 'text-success' : 'text-error'" style="font-weight:600; font-size:11px">
-                    {{ bizPhaseTotal(b) }}%
+                  <td class="text-center" style="font-weight:600; font-size:11px" :class="b.excludeWeight ? 'text-grey' : (phaseWeightTotal === 100 ? 'text-success' : 'text-error')">
+                    {{ b.excludeWeight ? '-' : phaseWeightTotal + '%' }}
                   </td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr>
                   <td></td>
-                  <td class="font-weight-bold">합계</td>
+                  <td></td>
+                  <td class="font-weight-bold">업무 가중치 합계</td>
                   <td class="text-center font-weight-bold" :class="Math.round(bizWeightTotal) === 100 ? 'text-success' : 'text-error'">
                     {{ bizWeightTotal }}%
                   </td>
@@ -1628,10 +1686,6 @@ watch([tab, () => project.value], ([v]) => {
             </table>
 
             <v-row class="mt-3" align="center">
-              <v-col>
-                <v-btn size="x-small" variant="text" @click="bizApplyDefaults" :disabled="bizLocked && !bizForceUnlock">기본값 적용</v-btn>
-                <span class="text-caption text-grey ml-2">단계 가중치를 프로젝트 기본값으로 일괄 복원</span>
-              </v-col>
               <v-col cols="auto" class="d-flex ga-2">
                 <v-btn size="small" variant="text" @click="cancelBizWeights" :disabled="!bizDirty">취소</v-btn>
                 <v-btn size="small" color="primary" @click="saveBizWeights" :disabled="!bizDirty" :loading="bizSaving">저장</v-btn>

@@ -16,6 +16,9 @@ export const approvalService = {
   async approve(projectId: number, docId: number, comment?: string) {
     return (await api.post(`/projects/${projectId}/approval/approve/${docId}`, { comment })).data
   },
+  async approveBulk(projectId: number, docIds: number[], comment?: string) {
+    return (await api.post(`/projects/${projectId}/approval/approve-bulk`, { docIds, comment })).data
+  },
   async reject(projectId: number, docId: number, comment?: string) {
     return (await api.post(`/projects/${projectId}/approval/reject/${docId}`, { comment })).data
   },

@@ -2,9 +2,11 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MainLayout from '@/components/common/MainLayout.vue'
+import BulkApprovalDialog from '@/components/common/BulkApprovalDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import { dashboardService } from '@/services/dashboard'
 import { approvalService } from '@/services/approval'
+import { notificationService } from '@/services/notifications'
 import { useDialog } from '@/composables/useDialog'
 const { showAlert, showConfirm, showPrompt } = useDialog()
 const authStore = useAuthStore()
@@ -300,14 +302,38 @@ async function quickApprove(a: any) {
   if (!(await showConfirm(`"${a.docName}" 산출물을 승인하시겠습니까?`))) return
   try {
     const res = await approvalService.approve(data.value?.project?.projectId, a.docId)
+    window.dispatchEvent(new CustomEvent('pms:notif-refresh'))
     await showAlert(res.message); await fetchDashboard()
   } catch (err: any) { showAlert(err.response?.data?.message || '승인 실패', { color: 'error' }) }
+}
+
+// 일괄승인 다이얼로그
+const bulkDialog = ref(false)
+function openBulkDialog() {
+  if (!data.value?.pendingApprovals?.length) return
+  bulkDialog.value = true
+}
+async function onBulkApproved() {
+  await fetchDashboard()
+}
+
+// "새 알림" 위젯에서 알림 클릭 시 읽음처리 + 링크 이동
+async function clickNotification(n: any) {
+  try {
+    if (!n.isRead) {
+      await notificationService.markRead(n.notifId)
+      n.isRead = true
+      window.dispatchEvent(new CustomEvent('pms:notif-refresh'))
+    }
+  } catch {}
+  if (n.link) router.push(n.link)
 }
 async function quickReject(a: any) {
   const comment = await showPrompt(`"${a.docName}" 반려 사유를 입력하세요:`)
   if (comment === null) return
   try {
     await approvalService.reject(data.value?.project?.projectId, a.docId, comment)
+    window.dispatchEvent(new CustomEvent('pms:notif-refresh'))
     await fetchDashboard()
   } catch (err: any) { showAlert(err.response?.data?.message || '반려 실패', { color: 'error' }) }
 }
@@ -479,7 +505,7 @@ onMounted(() => { ensureAllWidgets(); fetchDashboard() })
                   </div>
                 </template>
                 <template v-else-if="wid === 'pendingApprovals' && data.pendingApprovals?.length">
-                  <div class="widget-hd" @click="widgetExpanded.pendingApprovals = !widgetExpanded.pendingApprovals"><v-icon size="14" class="mr-1">{{ widgetExpanded.pendingApprovals ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon><v-icon size="14" color="orange" class="mr-1">mdi-clipboard-clock</v-icon>승인 대기<v-chip size="x-small" variant="tonal" color="orange" class="ml-1">{{ data.pendingApprovals.length }}</v-chip></div>
+                  <div class="widget-hd" @click="widgetExpanded.pendingApprovals = !widgetExpanded.pendingApprovals"><v-icon size="14" class="mr-1">{{ widgetExpanded.pendingApprovals ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon><v-icon size="14" color="orange" class="mr-1">mdi-clipboard-clock</v-icon>승인 대기<v-chip size="x-small" variant="tonal" color="orange" class="ml-1">{{ data.pendingApprovals.length }}</v-chip><v-spacer /><v-btn variant="text" size="x-small" color="orange-darken-2" prepend-icon="mdi-check-all" @click.stop="openBulkDialog">일괄승인</v-btn></div>
                   <div v-if="widgetExpanded.pendingApprovals" class="widget-bd pa-0" style="max-height:300px; overflow-y:auto">
                     <div v-for="a in data.pendingApprovals" :key="a.approvalId" class="approval-item"><div class="d-flex align-center mb-1"><span style="font-size:var(--pms-font-body); font-weight:600">{{ a.docName }}</span><v-spacer /><v-btn size="x-small" color="success" variant="tonal" class="mr-1" @click="quickApprove(a)">승인</v-btn><v-btn size="x-small" color="error" variant="text" @click="quickReject(a)">반려</v-btn></div><a style="cursor:pointer; color:var(--pms-primary); text-decoration:none" @click="goWbs(a.wbsCode)"><div style="font-size:var(--pms-font-mini); color:var(--pms-text-hint)">{{ a.wbsCode }}</div><div style="font-size:var(--pms-font-body)">{{ a.taskName }}</div></a></div>
                   </div>
@@ -511,7 +537,7 @@ onMounted(() => { ensureAllWidgets(); fetchDashboard() })
           <div v-if="data.unreadNotifications?.length" class="widget mb-2" style="border-left:3px solid #E53935">
             <div class="widget-hd"><v-icon size="14" color="error" class="mr-1">mdi-bell-ring</v-icon>새 알림<v-chip size="x-small" variant="tonal" color="error" class="ml-1">{{ data.unreadNotifications.length }}</v-chip></div>
             <div class="widget-bd pa-0" style="max-height:200px; overflow-y:auto">
-              <div v-for="n in data.unreadNotifications" :key="n.notifId" class="sched-item" @click="n.link && router.push(n.link)"><span class="sched-dot" style="background:#E53935" /><div style="flex:1; min-width:0"><div class="sched-title">{{ n.title }}</div><div v-if="n.message" class="sched-sub">{{ n.message }}</div></div></div>
+              <div v-for="n in data.unreadNotifications" :key="n.notifId" class="sched-item" @click="clickNotification(n)"><span class="sched-dot" style="background:#E53935" /><div style="flex:1; min-width:0"><div class="sched-title">{{ n.title }}</div><div v-if="n.message" class="sched-sub">{{ n.message }}</div></div></div>
             </div>
           </div>
           <!-- 위젯 (고정 + 드래그) -->
@@ -603,7 +629,7 @@ onMounted(() => { ensureAllWidgets(); fetchDashboard() })
                   </div>
                 </template>
                 <template v-else-if="wid === 'pendingApprovals' && data.pendingApprovals?.length">
-                  <div class="widget-hd" @click="widgetExpanded.pendingApprovals = !widgetExpanded.pendingApprovals"><v-icon size="14" class="mr-1">{{ widgetExpanded.pendingApprovals ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon><v-icon size="14" color="orange" class="mr-1">mdi-clipboard-clock</v-icon>승인 대기<v-chip size="x-small" variant="tonal" color="orange" class="ml-1">{{ data.pendingApprovals.length }}</v-chip></div>
+                  <div class="widget-hd" @click="widgetExpanded.pendingApprovals = !widgetExpanded.pendingApprovals"><v-icon size="14" class="mr-1">{{ widgetExpanded.pendingApprovals ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon><v-icon size="14" color="orange" class="mr-1">mdi-clipboard-clock</v-icon>승인 대기<v-chip size="x-small" variant="tonal" color="orange" class="ml-1">{{ data.pendingApprovals.length }}</v-chip><v-spacer /><v-btn variant="text" size="x-small" color="orange-darken-2" prepend-icon="mdi-check-all" @click.stop="openBulkDialog">일괄승인</v-btn></div>
                   <div v-if="widgetExpanded.pendingApprovals" class="widget-bd pa-0" style="max-height:300px; overflow-y:auto"><div v-for="a in data.pendingApprovals" :key="a.approvalId" class="approval-item"><div class="d-flex align-center mb-1"><span style="font-size:var(--pms-font-body); font-weight:600">{{ a.docName }}</span><v-spacer /><v-btn size="x-small" color="success" variant="tonal" class="mr-1" @click="quickApprove(a)">승인</v-btn><v-btn size="x-small" color="error" variant="text" @click="quickReject(a)">반려</v-btn></div><a style="cursor:pointer; color:var(--pms-primary); text-decoration:none" @click="goWbs(a.wbsCode)"><div style="font-size:var(--pms-font-mini); color:var(--pms-text-hint)">{{ a.wbsCode }}</div><div style="font-size:var(--pms-font-body)">{{ a.taskName }}</div></a></div></div>
                 </template>
                 <template v-else-if="wid === 'myTasks'">
@@ -658,6 +684,15 @@ onMounted(() => { ensureAllWidgets(); fetchDashboard() })
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 일괄승인 다이얼로그 -->
+    <BulkApprovalDialog
+      v-if="data?.project?.projectId"
+      v-model="bulkDialog"
+      :project-id="data.project.projectId"
+      :items="data.pendingApprovals || []"
+      @approved="onBulkApproved"
+    />
   </MainLayout>
 </template>
 

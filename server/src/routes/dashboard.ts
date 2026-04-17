@@ -132,11 +132,12 @@ router.get('/', async (req: Request, res: Response) => {
     let myApprovalStatus: any[] = [];
     if (!isAdmin && myProjectIds.length > 0) {
       const pid = myProjectIds[0];
+      const project = await prisma.project.findUnique({ where: { projectId: pid }, select: { progressCalcMode: true } });
 
       // 전체 태스크 조회
       const allTasks = await prisma.wbsTask.findMany({
         where: { projectId: pid },
-        select: { taskId: true, parentTaskId: true, depth: true, phase: true, planStart: true, planEnd: true, actualRate: true, assigneeId: true, wbsCode: true, taskName: true, weight: true, bizWeight: true },
+        select: { taskId: true, parentTaskId: true, depth: true, phase: true, planStart: true, planEnd: true, actualRate: true, assigneeId: true, wbsCode: true, taskName: true, weight: true, bizWeight: true, excludeWeight: true },
       });
 
       // 리프 판별
@@ -158,44 +159,30 @@ router.get('/', async (req: Request, res: Response) => {
         return Math.round((now.getTime() - start.getTime()) / total * 1000) / 10;
       }
 
-      // 업무별(depth 2) 진척률
+      // WBS calcAllProgress와 동일한 결과 사용 (wbs.ts의 GET /wbs?flat=true와 동일 로직)
+      const { calcAllProgress } = await import('./wbs');
+      const progressMap = calcAllProgress(allTasks);
+
+      // 업무별 진행률 (depth-2)
       const depth2Tasks = allTasks.filter(t => t.depth === 2);
-      let totalBizWeight = 0, sumBizPlan = 0, sumBizActual = 0;
-
       for (const biz of depth2Tasks) {
-        const prefix = (biz.wbsCode || '') + '.';
-        const bizLeaves = leafTasks.filter(t => t.wbsCode?.startsWith(prefix));
-
-        const planAvg = bizLeaves.length
-          ? bizLeaves.reduce((s, t) => s + calcPlanProg(t.planStart, t.planEnd), 0) / bizLeaves.length
-          : 0;
-        const actualAvg = bizLeaves.length
-          ? bizLeaves.reduce((s, t) => s + Number(t.actualRate || 0), 0) / bizLeaves.length
-          : 0;
-
-        const bw = Number(biz.bizWeight || 0);
+        const id = Number(biz.taskId);
+        const pr = progressMap.get(id);
         businessProgress.push({
           wbsCode: biz.wbsCode,
           taskName: biz.taskName,
-          bizWeight: bw,
-          progress: Math.round(planAvg * 10) / 10,
-          actualProgress: Math.round(actualAvg * 10) / 10,
+          bizWeight: Number(biz.bizWeight || 0),
+          excluded: !!(biz as any).excludeWeight,
+          progress: pr?.progressRate || 0,
+          actualProgress: pr?.actualRate || 0,
         });
-
-        if (bw > 0) {
-          totalBizWeight += bw;
-          sumBizPlan += planAvg * bw;
-          sumBizActual += actualAvg * bw;
-        }
       }
 
-      // 전체 진척률 (업무 가중 평균, 미설정 시 단순 평균)
-      if (totalBizWeight > 0) {
-        totalPlanProgress = Math.round(sumBizPlan / totalBizWeight * 10) / 10;
-        totalActualProgress = Math.round(sumBizActual / totalBizWeight * 10) / 10;
-      } else if (businessProgress.length) {
-        totalPlanProgress = Math.round(businessProgress.reduce((s: number, b: any) => s + b.progress, 0) / businessProgress.length * 10) / 10;
-        totalActualProgress = Math.round(businessProgress.reduce((s: number, b: any) => s + b.actualProgress, 0) / businessProgress.length * 10) / 10;
+      // 전체 진척률 = 루트 태스크의 값
+      const rootTask = allTasks.find(t => t.depth === 1);
+      if (rootTask) {
+        const rr = progressMap.get(Number(rootTask.taskId));
+        if (rr) { totalPlanProgress = rr.progressRate; totalActualProgress = rr.actualRate; }
       }
 
       // 내 태스크: 기준일 포함 + 본인 담당 + 실적 100% 미만

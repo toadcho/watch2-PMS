@@ -121,7 +121,7 @@ function calcPlanProgress(planStart: any, planEnd: any): number {
  * - 리프: 계획진행률 = 기간 경과율, 실적진행률 = DB 값 (사용자 입력)
  * - 부모: 계획/실적 = 하위 태스크의 가중 평균
  */
-function calcAllProgress(tasks: any[]): Map<number, { progressRate: number; actualRate: number }> {
+export function calcAllProgress(tasks: any[]): Map<number, { progressRate: number; actualRate: number }> {
   const result = new Map<number, { progressRate: number; actualRate: number }>();
   const taskMap = new Map<number, any>();
   const childrenMap = new Map<number, number[]>(); // parentId → childIds
@@ -162,7 +162,9 @@ function calcAllProgress(tasks: any[]): Map<number, { progressRate: number; actu
       const cr = result.get(cid);
       if (!cr) continue;
       const ct = taskMap.get(cid);
-      const w = Number(ct?.weight || 1);
+      // depth-2 태스크는 bizWeight 우선 사용 (업무별 가중치)
+      const bw = ct?.depth === 2 ? Number(ct?.bizWeight || 0) : 0;
+      const w = bw > 0 ? bw : Number(ct?.weight || 1);
       totalWeight += w;
       sumPlan += cr.progressRate * w;
       sumActual += cr.actualRate * w;
@@ -181,23 +183,108 @@ function calcAllProgress(tasks: any[]): Map<number, { progressRate: number; actu
   return result;
 }
 
-// progressMap: calcAllProgress 결과를 주입
+/**
+ * 부모 태스크의 실제시작/종료를 자식으로부터 집계
+ * - actualStart = MIN(children actualStart)
+ * - actualEnd = MAX(children actualEnd), 단 모든 자식이 actualEnd가 있을 때만
+ */
+function calcParentActualDates(tasks: any[]): Map<number, { actualStart: Date | null; actualEnd: Date | null }> {
+  const result = new Map<number, { actualStart: Date | null; actualEnd: Date | null }>();
+  const childrenMap = new Map<number, number[]>();
+  const taskMap = new Map<number, any>();
+
+  for (const t of tasks) {
+    const id = Number(t.taskId);
+    taskMap.set(id, t);
+    const pid = t.parentTaskId ? Number(t.parentTaskId) : null;
+    if (pid !== null) {
+      if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+      childrenMap.get(pid)!.push(id);
+    }
+  }
+
+  // 깊이 역순 (리프 → 루트)
+  const sorted = [...tasks].sort((a, b) => (b.depth || 0) - (a.depth || 0));
+  for (const t of sorted) {
+    const id = Number(t.taskId);
+    const children = childrenMap.get(id);
+    if (!children || children.length === 0) {
+      // 리프: DB 값 그대로
+      result.set(id, {
+        actualStart: t.actualStart ? new Date(t.actualStart) : null,
+        actualEnd: t.actualEnd ? new Date(t.actualEnd) : null,
+      });
+      continue;
+    }
+    // 부모: 자식 집계
+    let minStart: Date | null = null;
+    let maxEnd: Date | null = null;
+    let allHaveEnd = true;
+    for (const cid of children) {
+      const cr = result.get(cid);
+      if (!cr) continue;
+      if (cr.actualStart) {
+        if (!minStart || cr.actualStart < minStart) minStart = cr.actualStart;
+      }
+      if (cr.actualEnd) {
+        if (!maxEnd || cr.actualEnd > maxEnd) maxEnd = cr.actualEnd;
+      } else {
+        allHaveEnd = false;
+      }
+    }
+    result.set(id, {
+      actualStart: minStart,
+      actualEnd: allHaveEnd ? maxEnd : null,
+    });
+  }
+  return result;
+}
+
+// progressMap / actualDatesMap / displayWeightMap: 조회 시 주입
 let _progressMap: Map<number, { progressRate: number; actualRate: number }> | null = null;
+let _actualDatesMap: Map<number, { actualStart: Date | null; actualEnd: Date | null }> | null = null;
+let _displayWeightMap: Map<number, number> | null = null; // depth-2: bizWeight, depth-3 단계: phaseWeight
+
+/** depth-2는 bizWeight, depth-3(단계적용 업무 하위)은 phaseWeight로 표시용 가중치 빌드 */
+async function buildDisplayWeightMap(projectId: bigint, tasks: any[]): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  const project = await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true } });
+  const phaseWeights: Record<string, number> = (project?.phaseWeights as any) || {};
+
+  for (const t of tasks) {
+    const id = Number(t.taskId);
+    if (t.depth === 2) {
+      // depth-2: bizWeight 사용
+      const bw = Number(t.bizWeight || 0);
+      if (bw > 0) map.set(id, bw);
+    } else if (t.depth === 3) {
+      // depth-3: 부모가 단계적용(excludeWeight=false) 업무이면 phaseWeight
+      const parent = tasks.find((p: any) => Number(p.taskId) === Number(t.parentTaskId));
+      if (parent && !parent.excludeWeight) {
+        const pw = phaseWeights[t.taskName];
+        if (pw !== undefined && pw !== null) map.set(id, Number(pw));
+      }
+    }
+  }
+  return map;
+}
 
 function serializeTask(t: any): any {
   // 지연일 자동산정: (실제완료 or 오늘) - 변경계획완료 (영업일)
+  const id = Number(t.taskId);
+  // 부모 태스크는 집계된 실제종료일 사용
+  const effectiveActualEnd = _actualDatesMap?.get(id)?.actualEnd ?? (t.actualEnd ? new Date(t.actualEnd) : null);
   let delayDays: number | null = null;
   if (t.planEnd) {
     const pe = new Date(t.planEnd);
-    const compareDate = t.actualEnd ? new Date(t.actualEnd) : new Date();
-    if (t.actualEnd || compareDate > pe) {
+    const compareDate = effectiveActualEnd ? effectiveActualEnd : new Date();
+    if (effectiveActualEnd || compareDate > pe) {
       if (compareDate > pe) delayDays = bizDaysBetween(pe, compareDate) - 1;
       else if (compareDate < pe) delayDays = -(bizDaysBetween(compareDate, pe) - 1);
       else delayDays = 0;
     }
   }
 
-  const id = Number(t.taskId);
   const prog = _progressMap?.get(id);
   const progressRate = prog ? prog.progressRate : calcPlanProgress(t.planStart, t.planEnd);
   const actualRate = prog ? prog.actualRate : Number(t.actualRate || 0);
@@ -208,14 +295,21 @@ function serializeTask(t: any): any {
     projectId: Number(t.projectId),
     parentTaskId: t.parentTaskId ? Number(t.parentTaskId) : null,
     wbsCode: t.wbsCode || null,
+    // 실제시작/종료 (부모는 자식 집계값 사용)
+    actualStart: _actualDatesMap?.get(id)?.actualStart ?? t.actualStart ?? null,
+    actualEnd: _actualDatesMap?.get(id)?.actualEnd ?? t.actualEnd ?? null,
     // 일정
     duration: (t.planStart && t.planEnd) ? bizDaysBetween(new Date(t.planStart), new Date(t.planEnd)) : (t.duration || null),
-    actualMd: (t.actualStart && t.actualEnd) ? bizDaysBetween(new Date(t.actualStart), new Date(t.actualEnd)) : (t.actualMd || null),
+    actualMd: (() => {
+      const as = _actualDatesMap?.get(id)?.actualStart ?? (t.actualStart ? new Date(t.actualStart) : null);
+      const ae = _actualDatesMap?.get(id)?.actualEnd ?? (t.actualEnd ? new Date(t.actualEnd) : null);
+      return (as && ae) ? bizDaysBetween(as, ae) : (t.actualMd || null);
+    })(),
     delayDays,
     // 진행률
     progressRate,
     actualRate,
-    weight: Number(t.weight),
+    weight: _displayWeightMap?.get(id) ?? Number(t.weight),
     // 역할/담당
     taskRole: t.taskRole || null,
     assigneeName: t.assignee?.userName || null,
@@ -283,8 +377,12 @@ router.get('/', async (req: Request, res: Response) => {
       });
       const sorted = sortByWbs(tasks);
       _progressMap = calcAllProgress(sorted);
+      _actualDatesMap = calcParentActualDates(sorted);
+      _displayWeightMap = await buildDisplayWeightMap(projectId, sorted);
       const result = sorted.map(serializeTask);
       _progressMap = null;
+      _actualDatesMap = null;
+      _displayWeightMap = null;
       res.json({ success: true, data: result });
       return;
     }
@@ -300,6 +398,8 @@ router.get('/', async (req: Request, res: Response) => {
     });
     const allTasks = sortByWbs(allTasksRaw);
     _progressMap = calcAllProgress(allTasks);
+    _actualDatesMap = calcParentActualDates(allTasks);
+    _displayWeightMap = await buildDisplayWeightMap(projectId, allTasks);
 
     // 트리 빌드
     const taskMap = new Map<number, any>();
@@ -321,6 +421,8 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     _progressMap = null;
+    _actualDatesMap = null;
+    _displayWeightMap = null;
     res.json({ success: true, data: roots });
   } catch (err) {
     console.error('WBS list error:', err);
@@ -464,7 +566,7 @@ router.get('/business-weights', async (req: Request, res: Response) => {
     // depth 2 태스크 = 업무 (depth 1은 프로젝트 전체)
     const businesses = await prisma.wbsTask.findMany({
       where: { projectId, depth: 2 },
-      select: { taskId: true, wbsCode: true, taskName: true, bizWeight: true, phaseWeights: true },
+      select: { taskId: true, wbsCode: true, taskName: true, bizWeight: true, excludeWeight: true, phaseWeights: true },
       orderBy: { sortOrder: 'asc' },
     });
 
@@ -481,19 +583,22 @@ router.get('/business-weights', async (req: Request, res: Response) => {
     });
 
     // 프로젝트 기본 단계 가중치
-    const project = await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true } });
+    const project = await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true, progressCalcMode: true } });
     const defaultPhaseWeights = (project?.phaseWeights as any) || { '분석': 20, '설계': 20, '구현': 40, '시험': 10, '이행': 10 };
+    const progressCalcMode = project?.progressCalcMode || 'A';
 
     res.json({
       success: true,
       data: {
         locked: hasActual > 0,
         defaultPhaseWeights,
+        progressCalcMode,
         businesses: businesses.map(b => ({
           taskId: Number(b.taskId),
           wbsCode: b.wbsCode,
           taskName: b.taskName,
           bizWeight: Number(b.bizWeight),
+          excludeWeight: !!b.excludeWeight,
           phaseWeights: b.phaseWeights || null,
         })),
       },
@@ -511,8 +616,7 @@ router.put('/business-weights', async (req: Request, res: Response) => {
     const projectId = BigInt(req.params.projectId);
 
     // 잠금 체크 (강제 해제 옵션)
-    const { businesses, forceUnlock } = req.body;
-    // businesses: [{ taskId, weight, phaseWeights }]
+    const { businesses, forceUnlock, progressCalcMode, phaseWeights: newPhaseWeights } = req.body;
 
     if (!forceUnlock) {
       const hasActual = await prisma.wbsTask.count({
@@ -536,12 +640,25 @@ router.put('/business-weights', async (req: Request, res: Response) => {
       return;
     }
 
+    // 프로젝트 설정 저장 (단계 가중치 + 공정율 산정 방식)
+    const projectUpdate: any = {};
+    if (newPhaseWeights) projectUpdate.phaseWeights = newPhaseWeights;
+    if (progressCalcMode) projectUpdate.progressCalcMode = progressCalcMode;
+    if (Object.keys(projectUpdate).length) {
+      await prisma.project.update({ where: { projectId }, data: projectUpdate });
+    }
+
+    // 업무별 가중치 저장 + 단계 가중치 동기화
+    const phaseW = newPhaseWeights || (await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true } }))?.phaseWeights as any || {};
     for (const b of businesses) {
+      const isExcluded = !!b.excludeWeight;
       await prisma.wbsTask.update({
         where: { taskId: BigInt(b.taskId) },
         data: {
           bizWeight: b.bizWeight,
-          phaseWeights: b.phaseWeights || null,
+          excludeWeight: isExcluded,
+          // 단계 가중치 적용 업무: 상단 단계 가중치로 동기화 / 미적용: null
+          phaseWeights: isExcluded ? null : phaseW,
         },
       });
     }
@@ -564,80 +681,127 @@ router.post('/business-weights/unlock', async (req: Request, res: Response) => {
   }
 });
 
+// ── 가중치 자동산정 공통 함수 (MD비율 + 단계가중치) ──
+async function autoCalcWeights(projectId: bigint): Promise<number> {
+  const project = await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true } });
+  const phaseWeights: Record<string, number> = (project?.phaseWeights as any) || { '분석': 20, '설계': 20, '구현': 40, '시험': 10, '이행': 10 };
+
+  const allTasks = await prisma.wbsTask.findMany({
+    where: { projectId },
+    select: { taskId: true, parentTaskId: true, taskName: true, phase: true, planStart: true, planEnd: true, depth: true, excludeWeight: true },
+    orderBy: { sortOrder: 'asc' },
+  });
+
+  const childrenOf = new Map<number | null, typeof allTasks>();
+  for (const t of allTasks) {
+    const pid = t.parentTaskId ? Number(t.parentTaskId) : null;
+    if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+    childrenOf.get(pid)!.push(t);
+  }
+
+  let updated = 0;
+  for (const [, children] of childrenOf) {
+    const mds = children.map(c => (c.planStart && c.planEnd) ? bizDaysBetween(c.planStart, c.planEnd) : 0);
+    const totalMd = mds.reduce((s, m) => s + m, 0);
+    if (totalMd === 0) continue;
+    const weights = mds.map(m => Math.floor(m / totalMd * 10000) / 100);
+    let remainder = Math.round((100 - weights.reduce((s, w) => s + w, 0)) * 100) / 100;
+    const sortedIdx = mds.map((_, i) => i).sort((a, b) => mds[b] - mds[a]);
+    let ri = 0;
+    while (remainder > 0.005 && ri < sortedIdx.length) {
+      weights[sortedIdx[ri]] = Math.round((weights[sortedIdx[ri]] + 0.01) * 100) / 100;
+      remainder = Math.round((remainder - 0.01) * 100) / 100;
+      ri++; if (ri >= sortedIdx.length) ri = 0;
+    }
+    for (let i = 0; i < children.length; i++) {
+      await prisma.wbsTask.update({ where: { taskId: children[i].taskId }, data: { weight: weights[i] } });
+      updated++;
+    }
+  }
+
+  // depth-3 단계 태스크에 phaseWeights 덮어쓰기
+  const depth2Biz = allTasks.filter(t => t.depth === 2);
+  for (const biz of depth2Biz) {
+    if ((biz as any).excludeWeight) continue;
+    const depth3Children = allTasks.filter(t => Number(t.parentTaskId) === Number(biz.taskId) && t.depth === 3);
+    for (const child of depth3Children) {
+      // 단계명 매칭: phaseWeights에 키가 있으면 적용 (0 포함), 없으면 건너뜀
+      const childName = (child as any).taskName;
+      if (childName in phaseWeights) {
+        await prisma.wbsTask.update({ where: { taskId: child.taskId }, data: { weight: Number(phaseWeights[childName]) || 0 } });
+        updated++;
+      }
+    }
+  }
+  return updated;
+}
+
 // POST /api/v1/projects/:projectId/wbs/calc-weights — 태스크 가중치 자동산정 (MD비율)
 router.post('/calc-weights', async (req: Request, res: Response) => {
   try {
     if (!(await requirePmsAdmin(req, res))) return;
     const projectId = BigInt(req.params.projectId);
-
-    // 프로젝트의 phaseWeights 로드
-    const project = await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true } });
-    const phaseWeights: Record<string, number> = (project?.phaseWeights as any) || { '분석': 20, '설계': 20, '구현': 40, '시험': 10, '이행': 10 };
-
-    const allTasks = await prisma.wbsTask.findMany({
-      where: { projectId },
-      select: { taskId: true, parentTaskId: true, phase: true, planStart: true, planEnd: true, depth: true },
-      orderBy: { sortOrder: 'asc' },
-    });
-
-    // 부모별로 자식 그룹핑
-    const childrenOf = new Map<number | null, typeof allTasks>();
-    for (const t of allTasks) {
-      const pid = t.parentTaskId ? Number(t.parentTaskId) : null;
-      if (!childrenOf.has(pid)) childrenOf.set(pid, []);
-      childrenOf.get(pid)!.push(t);
-    }
-
-    let updated = 0;
-    // 각 부모의 자식들에 대해 MD 비율로 가중치 산정
-    for (const [parentId, children] of childrenOf) {
-      // 각 자식의 계획MD 계산
-      const mds = children.map(c => {
-        if (c.planStart && c.planEnd) return bizDaysBetween(c.planStart, c.planEnd);
-        return 0;
-      });
-      const totalMd = mds.reduce((s, m) => s + m, 0);
-      if (totalMd === 0) continue;
-
-      // 각 자식의 가중치를 소수점 2자리로 산정 후 합계 100% 보정
-      const weights = mds.map(m => Math.floor(m / totalMd * 10000) / 100); // floor로 내림
-      let remainder = Math.round((100 - weights.reduce((s, w) => s + w, 0)) * 100) / 100;
-
-      // 나머지를 가장 큰 MD 항목부터 0.01씩 분배
-      const sortedIdx = mds.map((_, i) => i).sort((a, b) => mds[b] - mds[a]);
-      let ri = 0;
-      while (remainder > 0.005 && ri < sortedIdx.length) {
-        weights[sortedIdx[ri]] = Math.round((weights[sortedIdx[ri]] + 0.01) * 100) / 100;
-        remainder = Math.round((remainder - 0.01) * 100) / 100;
-        ri++;
-        if (ri >= sortedIdx.length) ri = 0;
-      }
-
-      for (let i = 0; i < children.length; i++) {
-        await prisma.wbsTask.update({
-          where: { taskId: children[i].taskId },
-          data: { weight: weights[i] },
-        });
-        updated++;
-      }
-    }
-
-    // depth=2 태스크(단계)에 phaseWeights 적용
-    const depth2 = allTasks.filter(t => t.depth === 2);
-    for (const stage of depth2) {
-      const phase = stage.phase;
-      if (phase && phaseWeights[phase] !== undefined) {
-        await prisma.wbsTask.update({
-          where: { taskId: stage.taskId },
-          data: { weight: phaseWeights[phase] },
-        });
-      }
-    }
-
+    const updated = await autoCalcWeights(projectId);
     res.json({ success: true, data: { updated }, message: `${updated}개 태스크의 가중치가 MD 비율로 산정되었습니다.` });
   } catch (err) {
     console.error('Calc weights error:', err);
     res.status(500).json({ success: false, message: '가중치 산정 중 오류가 발생했습니다.' });
+  }
+});
+
+// POST /api/v1/projects/:projectId/wbs/batch-actuals — 지연 태스크 일괄 실적 등록
+router.post('/batch-actuals', async (req: Request, res: Response) => {
+  try {
+    if (!(await requirePmsAdmin(req, res))) return;
+    const currentUser = (req as any).user as JwtPayload;
+    const projectId = BigInt(req.params.projectId);
+    const { taskIds, mode, customRate } = req.body;
+    // mode: 'plan100' (계획대비 100%) | 'custom' (직접 입력)
+    // taskIds: number[]
+    // customRate: number (mode=custom일 때)
+
+    if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
+      res.status(400).json({ success: false, message: '대상 태스크를 선택해주세요.' }); return;
+    }
+
+    const rate = mode === 'plan100' ? 100 : Number(customRate || 0);
+    if (rate <= 0 || rate > 100) {
+      res.status(400).json({ success: false, message: '실적률은 1~100% 사이여야 합니다.' }); return;
+    }
+
+    let updated = 0;
+    for (const tid of taskIds) {
+      const task = await prisma.wbsTask.findUnique({
+        where: { taskId: BigInt(tid) },
+        select: { taskId: true, projectId: true, planStart: true, planEnd: true, actualRate: true },
+      });
+      if (!task || Number(task.projectId) !== Number(projectId)) continue;
+
+      const data: any = {
+        actualRate: rate,
+        actualStart: task.planStart,
+      };
+      if (rate >= 100) {
+        data.actualEnd = task.planEnd;
+      }
+
+      await prisma.wbsTask.update({ where: { taskId: BigInt(tid) }, data });
+      updated++;
+    }
+
+    // 부모 진척률 재산정
+    try { await autoCalcWeights(projectId); } catch {}
+
+    await writeAuditLog({
+      userId: currentUser.userId, ipAddress: req.ip,
+      action: 'UPDATE', targetType: 'wbs_batch_actuals',
+      changeDetail: { mode, rate, count: updated },
+    });
+
+    res.json({ success: true, data: { updated }, message: `${updated}건의 실적이 등록되었습니다.` });
+  } catch (err) {
+    console.error('Batch actuals error:', err);
+    res.status(500).json({ success: false, message: '일괄 실적 등록 중 오류가 발생했습니다.' });
   }
 });
 
@@ -683,15 +847,21 @@ router.get('/import-template', async (_req: Request, res: Response) => {
     const example =  ['1.1',   '분석단계',     '분석', '홍길동', '2026.04.01', '2026.05.31', '',                          ''];
     const example2 = ['1.1.1', '현행시스템분석', '분석', '김개발', '2026.04.01', '2026.04.15', '1.1 FS',                    '현행시스템분석서'];
     const example3 = ['1.1.2', '요구사항정의',   '분석', '이분석', '2026.04.10', '2026.04.30', '1.1.1 FS, 1.1 SS',         '요구사항정의서, 요구사항추적표'];
-    const note1 = ['※ 필수: WBS, 작업이름, 공정단계, 계획시작일, 계획종료일', '', '', '', '', '', '', ''];
-    const note2 = ['※ 날짜형식: YYYY.MM.DD | WBS 계층구조(1.1→1.1.1)로 상위-하위 자동 구성', '', '', '', '', '', '', ''];
-    const note3 = ['※ 선행작업: "WBS코드 관계타입" (예: 1.1.1 FS) 콤마 구분으로 복수 입력 가능', '', '', '', '', '', '', ''];
-    const note4 = ['※ 관계타입: FS(완료→시작), SS(동시시작), FF(동시완료), SF(시작→완료)', '', '', '', '', '', '', ''];
-    const note5 = ['※ 산출물: 산출물명을 콤마 구분으로 복수 입력 가능', '', '', '', '', '', '', ''];
-    const note6 = ['※ 초기계획은 계획시작일/종료일과 동일한 값으로 자동 설정됩니다', '', '', '', '', '', '', ''];
+    const pad = (s: string) => [s, '', '', '', '', '', '', ''];
+    const note0  = pad('※ 필수 입력: WBS, 작업이름, 공정단계, 계획시작일, 계획종료일');
+    const note1  = pad('※ WBS: 계층 코드 (예: 1, 1.1, 1.1.1). 상위-하위 관계는 코드 구조로 자동 연결');
+    const note2  = pad('※ 작업이름: 태스크/활동 명칭');
+    const note3  = pad('※ 공정단계: 분석 / 설계 / 구현 / 시험 / 이행 중 하나');
+    const note4  = pad('※ 담당자: 프로젝트 투입인력의 사용자명 (일치하지 않으면 미지정으로 처리)');
+    const note5  = pad('※ 계획시작일/계획종료일: YYYY.MM.DD 형식 (휴일 입력 시 작업일로 자동 보정)');
+    const note6  = pad('※ 선행작업: "WBS코드 관계타입" 형식 (예: 1.1.1 FS). 복수 입력 시 콤마 구분');
+    const note7  = pad('※ 관계타입: FS(완료→시작), SS(동시시작), FF(동시완료), SF(시작→완료)');
+    const note8  = pad('※ 산출물: 산출물명을 콤마 구분으로 복수 입력 가능 (상태는 "등록"으로 생성)');
+    const note9  = pad('※ 초기계획(baseline)은 계획시작일/종료일과 동일한 값으로 자동 설정됩니다');
+    const note10 = pad('※ 실적(실제시작/종료/진척률), 역할, 가중치, 선·후행 상세는 업로드 후 화면에서 편집하세요');
 
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([headers, example, example2, example3, [], note1, note2, note3, note4, note5, note6]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, example, example2, example3, [], note0, note1, note2, note3, note4, note5, note6, note7, note8, note9, note10]);
     ws['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 25 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(wb, ws, 'WBS임포트');
 
@@ -721,6 +891,7 @@ router.get('/progress-report', async (req: Request, res: Response) => {
       select: {
         taskId: true, wbsCode: true, taskName: true, parentTaskId: true, depth: true,
         planStart: true, planEnd: true, progressRate: true, actualRate: true, weight: true,
+        bizWeight: true, excludeWeight: true,
         childTasks: { select: { taskId: true } },
       },
       orderBy: { sortOrder: 'asc' },
@@ -740,8 +911,12 @@ router.get('/progress-report', async (req: Request, res: Response) => {
       else if (refDate >= t.planStart) planMdByRef += bizDaysBetween(t.planStart, refDate);
     }
 
+    // 공정율 산정 방식 로드
+    const projectConfig = await prisma.project.findUnique({ where: { projectId }, select: { progressCalcMode: true } });
+    const calcMode = projectConfig?.progressCalcMode || 'A';
+
     // 단계별 집계 (depth=2)
-    const phases = new Map<string, { name: string; weight: number; planProgress: number; actualProgress: number; tasks: number }>();
+    const phases = new Map<string, { name: string; weight: number; bizWeight: number; excluded: boolean; planProgress: number; actualProgress: number; tasks: number }>();
     const depth2 = allTasks.filter(t => t.depth === 2);
     for (const stage of depth2) {
       const stageLeaves = leaves.filter(l => {
@@ -755,18 +930,22 @@ router.get('/progress-report', async (req: Request, res: Response) => {
       const totalW = stageLeaves.reduce((s, t) => s + Number(t.weight), 0);
       const planProg = totalW > 0 ? stageLeaves.reduce((s, t) => s + Number(t.progressRate) * Number(t.weight), 0) / totalW : 0;
       const actProg = totalW > 0 ? stageLeaves.reduce((s, t) => s + Number(t.actualRate) * Number(t.weight), 0) / totalW : 0;
+      const excluded = !!(stage as any).excludeWeight;
       phases.set(stage.wbsCode || String(stage.taskId), {
-        name: stage.taskName, weight: Number(stage.weight),
+        name: stage.taskName, weight: Number(stage.weight), bizWeight: Number((stage as any).bizWeight || 0), excluded,
         planProgress: Math.round(planProg * 100) / 100, actualProgress: Math.round(actProg * 100) / 100,
         tasks: stageLeaves.length,
       });
     }
 
+    // 공정율 합산: A안=전체, B안=단계가중치 적용 업무(excluded=false)만
     let totalPlanProgress = 0, totalActualProgress = 0, totalWeight = 0;
     for (const [, p] of phases) {
-      totalPlanProgress += p.planProgress * p.weight;
-      totalActualProgress += p.actualProgress * p.weight;
-      totalWeight += p.weight;
+      if (calcMode === 'B' && p.excluded) continue;
+      const w = p.bizWeight || p.weight;
+      totalPlanProgress += p.planProgress * w;
+      totalActualProgress += p.actualProgress * w;
+      totalWeight += w;
     }
     if (totalWeight > 0) {
       totalPlanProgress = Math.round(totalPlanProgress / totalWeight * 100) / 100;
@@ -1059,6 +1238,9 @@ router.post('/', async (req: Request, res: Response) => {
       },
     });
 
+    // 가중치 자동 재산정
+    try { await autoCalcWeights(projectId); } catch {}
+
     await writeAuditLog({
       userId: currentUser.userId,
       ipAddress: req.ip,
@@ -1184,6 +1366,10 @@ router.put('/:taskId', authenticate, async (req: Request, res: Response) => {
     if (progressRate !== undefined && updated.parentTaskId) {
       await recalcProgress(updated.parentTaskId);
     }
+    // 일정 변경 시 가중치 자동 재산정
+    if (planStart !== undefined || planEnd !== undefined) {
+      try { await autoCalcWeights(projectId); } catch {}
+    }
 
     await writeAuditLog({
       userId: currentUser.userId,
@@ -1241,10 +1427,52 @@ router.delete('/:taskId', async (req: Request, res: Response) => {
     await prisma.taskDependency.deleteMany({ where: { OR: [{ predecessorId: taskId }, { successorId: taskId }] } });
     await prisma.wbsTask.delete({ where: { taskId } });
 
-    // 상위 진척률 재산정
-    if (task?.parentTaskId) {
-      await recalcProgress(task.parentTaskId);
+    // 부모의 유일한 자식이었으면 부모도 연쇄 삭제 (빈 부모 정리)
+    let deleted = 1;
+    let parentId = task?.parentTaskId || null;
+    while (parentId) {
+      const siblingCount = await prisma.wbsTask.count({ where: { parentTaskId: parentId } });
+      if (siblingCount > 0) break; // 다른 자식이 남아있으면 중단
+      const parent = await prisma.wbsTask.findUnique({ where: { taskId: parentId }, select: { parentTaskId: true } });
+      await prisma.taskDependency.deleteMany({ where: { OR: [{ predecessorId: parentId }, { successorId: parentId }] } });
+      // 부모의 산출물/리뷰/버전 정리
+      const parentDocs = await prisma.deliverable.findMany({ where: { taskId: parentId }, select: { docId: true } });
+      if (parentDocs.length) {
+        const docIds = parentDocs.map(d => d.docId);
+        await prisma.review.deleteMany({ where: { docId: { in: docIds } } });
+        await prisma.docVersion.deleteMany({ where: { docId: { in: docIds } } });
+        await prisma.deliverable.deleteMany({ where: { taskId: parentId } });
+      }
+      await prisma.wbsTask.delete({ where: { taskId: parentId } });
+      deleted++;
+      parentId = parent?.parentTaskId || null;
     }
+
+    // 상위 일정 재산정 (남은 자식의 MIN/MAX) + 진척률 재산정
+    if (parentId) {
+      // 부모 → 루트까지 일정 집계
+      let pid: bigint | null = parentId;
+      while (pid) {
+        const children = await prisma.wbsTask.findMany({
+          where: { parentTaskId: pid },
+          select: { planStart: true, planEnd: true, baselineStart: true, baselineEnd: true },
+        });
+        if (children.length === 0) break;
+        const planStarts = children.filter(c => c.planStart).map(c => c.planStart!.getTime());
+        const planEnds = children.filter(c => c.planEnd).map(c => c.planEnd!.getTime());
+        const data: any = {};
+        if (planStarts.length) data.planStart = new Date(Math.min(...planStarts));
+        if (planEnds.length) data.planEnd = new Date(Math.max(...planEnds));
+        if (Object.keys(data).length) {
+          await prisma.wbsTask.update({ where: { taskId: pid }, data });
+        }
+        const p = await prisma.wbsTask.findUnique({ where: { taskId: pid }, select: { parentTaskId: true } });
+        pid = p?.parentTaskId || null;
+      }
+      await recalcProgress(parentId);
+    }
+    // 가중치 자동 재산정
+    try { await autoCalcWeights(projectId); } catch {}
 
     await writeAuditLog({
       userId: currentUser.userId,
@@ -1252,9 +1480,11 @@ router.delete('/:taskId', async (req: Request, res: Response) => {
       action: 'DELETE',
       targetType: 'wbs_task',
       targetId: taskId,
+      changeDetail: deleted > 1 ? { cascadeDeleted: deleted - 1 } : undefined,
     });
 
-    res.json({ success: true, data: null, message: '태스크가 삭제되었습니다.' });
+    const msg = deleted > 1 ? `태스크 및 빈 상위 ${deleted - 1}건이 함께 삭제되었습니다.` : '태스크가 삭제되었습니다.';
+    res.json({ success: true, data: null, message: msg });
   } catch (err) {
     console.error('WBS delete error:', err);
     res.status(500).json({ success: false, message: '태스크 삭제 중 오류가 발생했습니다.' });
@@ -1846,8 +2076,24 @@ router.post('/import', upload.single('file'), async (req: Request, res: Response
       return null;
     }
 
+    // 추가 모드: 기존 WBS 코드 → taskId 매핑 로드 (중복 방지 + 부모 연결용)
+    const existingTasks = await prisma.wbsTask.findMany({
+      where: { projectId },
+      select: { taskId: true, wbsCode: true, sortOrder: true },
+    });
+    for (const et of existingTasks) {
+      if (et.wbsCode) wbsToId.set(et.wbsCode, et.taskId);
+    }
+    // sortOrder 이어서 채번
+    const maxOrder = existingTasks.reduce((m, t) => Math.max(m, t.sortOrder || 0), 0);
+    let orderOffset = maxOrder;
+
     let imported = 0;
+    let skipped = 0;
     for (const t of tasks) {
+      // 이미 존재하는 WBS 코드면 skip
+      if (wbsToId.has(t.wbsCode)) { skipped++; continue; }
+
       const parentTaskId = t.parentWbs ? (wbsToId.get(t.parentWbs) || null) : null;
       const phase = phaseMap[t.phase] || t.phase || null;
       const assigneeId = resolveAssignee(t.assignee);
@@ -1860,7 +2106,7 @@ router.post('/import', upload.single('file'), async (req: Request, res: Response
           taskName: t.taskName,
           phase,
           depth: t.depth,
-          sortOrder: t.sortOrder,
+          sortOrder: orderOffset + t.sortOrder,
           planStart: t.planStart,
           planEnd: t.planEnd,
           actualStart: t.actualStart,
@@ -1929,37 +2175,91 @@ router.post('/import', upload.single('file'), async (req: Request, res: Response
       }
     }
 
-    // 부모 태스크 일정 집계 (자식 min/max)
+    // 부모 태스크 일정 집계 (자식 min/max) — 깊이 역순, 매 패스마다 DB 재조회
     let parentFixed = 0;
-    const allImported = await prisma.wbsTask.findMany({
-      where: { projectId },
-      select: { taskId: true, parentTaskId: true, depth: true, planStart: true, planEnd: true, baselineStart: true, baselineEnd: true },
-      orderBy: { sortOrder: 'asc' },
-    });
-    const parentIds = new Set(allImported.filter(t => t.parentTaskId).map(t => Number(t.parentTaskId)));
-    // 깊은 depth부터 역순
-    const parents = allImported.filter(t => parentIds.has(Number(t.taskId))).sort((a, b) => b.depth - a.depth);
-    for (const p of parents) {
-      const children = allImported.filter(c => Number(c.parentTaskId) === Number(p.taskId));
-      const planStarts = children.filter(c => c.planStart).map(c => c.planStart!.getTime());
-      const planEnds = children.filter(c => c.planEnd).map(c => c.planEnd!.getTime());
-      const blStarts = children.filter(c => c.baselineStart).map(c => c.baselineStart!.getTime());
-      const blEnds = children.filter(c => c.baselineEnd).map(c => c.baselineEnd!.getTime());
+    for (let pass = 0; pass < 5; pass++) { // 최대 5 depth
+      const allNow = await prisma.wbsTask.findMany({
+        where: { projectId },
+        select: { taskId: true, parentTaskId: true, depth: true, planStart: true, planEnd: true, baselineStart: true, baselineEnd: true },
+      });
+      const pIds = new Set(allNow.filter(t => t.parentTaskId).map(t => Number(t.parentTaskId)));
+      const parentsNow = allNow.filter(t => pIds.has(Number(t.taskId))).sort((a, b) => b.depth - a.depth);
+      let changed = 0;
+      for (const p of parentsNow) {
+        const children = allNow.filter(c => Number(c.parentTaskId) === Number(p.taskId));
+        const planStarts = children.filter(c => c.planStart).map(c => c.planStart!.getTime());
+        const planEnds = children.filter(c => c.planEnd).map(c => c.planEnd!.getTime());
+        if (!planStarts.length) continue;
+        const newStart = new Date(Math.min(...planStarts));
+        const newEnd = new Date(Math.max(...planEnds));
+        if (p.planStart?.getTime() === newStart.getTime() && p.planEnd?.getTime() === newEnd.getTime()) continue;
 
-      const data: any = {};
-      if (planStarts.length) data.planStart = new Date(Math.min(...planStarts));
-      if (planEnds.length) data.planEnd = new Date(Math.max(...planEnds));
-      if (blStarts.length) data.baselineStart = new Date(Math.min(...blStarts));
-      if (blEnds.length) data.baselineEnd = new Date(Math.max(...blEnds));
-
-      if (Object.keys(data).length) {
+        const blStarts = children.filter(c => c.baselineStart).map(c => c.baselineStart!.getTime());
+        const blEnds = children.filter(c => c.baselineEnd).map(c => c.baselineEnd!.getTime());
+        const data: any = { planStart: newStart, planEnd: newEnd };
+        if (blStarts.length) data.baselineStart = new Date(Math.min(...blStarts));
+        if (blEnds.length) data.baselineEnd = new Date(Math.max(...blEnds));
         await prisma.wbsTask.update({ where: { taskId: p.taskId }, data });
-        parentFixed++;
+        parentFixed++; changed++;
       }
+      if (changed === 0) break; // 더 이상 변경 없으면 종료
     }
 
     // 임시 파일 삭제
     try { fs.unlinkSync(file.path); } catch {}
+
+    // ── 가중치 자동 산정 (MD비율 + 단계가중치) ──
+    let weightUpdated = 0;
+    try {
+      const proj = await prisma.project.findUnique({ where: { projectId }, select: { phaseWeights: true } });
+      const pw: Record<string, number> = (proj?.phaseWeights as any) || { '분석': 20, '설계': 20, '구현': 40, '시험': 10, '이행': 10 };
+
+      const allForWeight = await prisma.wbsTask.findMany({
+        where: { projectId },
+        select: { taskId: true, parentTaskId: true, taskName: true, phase: true, planStart: true, planEnd: true, depth: true, excludeWeight: true },
+        orderBy: { sortOrder: 'asc' },
+      });
+
+      const childrenOf = new Map<number | null, typeof allForWeight>();
+      for (const t of allForWeight) {
+        const pid = t.parentTaskId ? Number(t.parentTaskId) : null;
+        if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+        childrenOf.get(pid)!.push(t);
+      }
+
+      // MD비율 배분
+      for (const [, children] of childrenOf) {
+        const mds = children.map(c => (c.planStart && c.planEnd) ? bizDaysBetween(c.planStart, c.planEnd) : 0);
+        const totalMd = mds.reduce((s, m) => s + m, 0);
+        if (totalMd === 0) continue;
+        const weights = mds.map(m => Math.floor(m / totalMd * 10000) / 100);
+        let remainder = Math.round((100 - weights.reduce((s, w) => s + w, 0)) * 100) / 100;
+        const sortedIdx = mds.map((_, i) => i).sort((a, b) => mds[b] - mds[a]);
+        let ri = 0;
+        while (remainder > 0.005 && ri < sortedIdx.length) {
+          weights[sortedIdx[ri]] = Math.round((weights[sortedIdx[ri]] + 0.01) * 100) / 100;
+          remainder = Math.round((remainder - 0.01) * 100) / 100;
+          ri++; if (ri >= sortedIdx.length) ri = 0;
+        }
+        for (let i = 0; i < children.length; i++) {
+          await prisma.wbsTask.update({ where: { taskId: children[i].taskId }, data: { weight: weights[i] } });
+          weightUpdated++;
+        }
+      }
+
+      // depth-3 단계 태스크에 phaseWeights 덮어쓰기
+      const bizTasks = allForWeight.filter(t => t.depth === 2);
+      for (const biz of bizTasks) {
+        if ((biz as any).excludeWeight) continue;
+        const d3Children = allForWeight.filter(t => Number(t.parentTaskId) === Number(biz.taskId) && t.depth === 3);
+        for (const child of d3Children) {
+          const phaseW = pw[child.taskName];
+          if (phaseW !== undefined) {
+            await prisma.wbsTask.update({ where: { taskId: child.taskId }, data: { weight: phaseW } });
+          }
+        }
+      }
+    } catch (e) { console.error('Auto calc-weights after import:', e); }
 
     await writeAuditLog({
       userId: currentUser.userId, ipAddress: req.ip,
@@ -1969,10 +2269,12 @@ router.post('/import', upload.single('file'), async (req: Request, res: Response
 
     const corrMsg = corrections.length ? ` | 주말보정 ${corrections.length}건` : '';
     const parentMsg = parentFixed ? ` | 부모일정 집계 ${parentFixed}건` : '';
+    const skipMsg = skipped ? ` | 기존 WBS 중복 ${skipped}건 건너뜀` : '';
+    const weightMsg = weightUpdated ? ` | 가중치 자동산정 ${weightUpdated}건` : '';
     res.json({
       success: true,
-      data: { imported, sheet: sheetName, corrections, parentFixed },
-      message: `${imported}개 태스크 임포트 완료${corrMsg}${parentMsg}`,
+      data: { imported, skipped, weightUpdated, sheet: sheetName, corrections, parentFixed },
+      message: `${imported}개 태스크 임포트 완료${skipMsg}${corrMsg}${parentMsg}${weightMsg}`,
     });
   } catch (err) {
     console.error('WBS import error:', err);

@@ -105,6 +105,34 @@ export async function createNotification(params: {
   }
 }
 
+/**
+ * 특정 사용자의 승인요청 알림을 읽음 처리.
+ * link에 `task={taskId}`가 포함된 approval_request 타입 알림이 대상.
+ * 승인/반려 처리 시 호출하여 관련 대기 알림을 자동 해제.
+ */
+export async function markApprovalRequestNotifsRead(
+  userId: string,
+  projectId: bigint,
+  taskIds: (bigint | number)[],
+) {
+  if (!taskIds.length) return;
+  const unique = Array.from(new Set(taskIds.map(t => Number(t))));
+  try {
+    await prisma.notification.updateMany({
+      where: {
+        userId,
+        projectId,
+        type: 'approval_request',
+        isRead: false,
+        OR: unique.map(tid => ({ link: { contains: `task=${tid}` } })),
+      },
+      data: { isRead: true },
+    });
+  } catch (err) {
+    console.error('markApprovalRequestNotifsRead failed:', err);
+  }
+}
+
 export async function createNotificationBulk(userIds: string[], params: {
   projectId?: bigint | number;
   type: string;

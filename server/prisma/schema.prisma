@@ -58,6 +58,7 @@ model Project {
   status       String   @default("계획") @db.VarChar(20)
   methodologyId BigInt?  @map("methodology_id")
   phaseWeights Json?    @map("phase_weights")                 // {"분석":20,"설계":20,...}
+  progressCalcMode String @default("A") @map("progress_calc_mode") @db.VarChar(1) // A: 전체업무포함, B: 응용업무만
   approvalEnabled  Boolean @default(false) @map("approval_enabled")   // 산출물 승인 프로세스 적용
   devProgressEnabled Boolean @default(false) @map("dev_progress_enabled") // 주간보고에 개발진척현황 표시
   docFolderLockEnabled Boolean @default(false) @map("doc_folder_lock_enabled") // 산출물 승인 완료 시 폴더 자동 잠금
@@ -228,6 +229,7 @@ model WbsTask {
   actualRate    Decimal  @default(0.00) @map("actual_rate") @db.Decimal(5, 2)    // 실적 진행율
   weight        Decimal  @default(1.00) @db.Decimal(5, 2)   // 태스크 가중치 (MD 비율)
   bizWeight     Decimal  @default(0) @map("biz_weight") @db.Decimal(5, 2)  // 업무 가중치 (depth 2 전용, 합계 100%)
+  excludeWeight Boolean  @default(false) @map("exclude_weight")            // 공정율 가중치 적용 제외 (depth 2 전용)
   phaseWeights  Json?    @map("phase_weights")                // 업무별 단계 가중치 {"분석":20,"설계":30,...} (depth 2만)
   taskRole     String?  @map("task_role") @db.VarChar(50)    // PL/팀원/QA/DBA
   assigneeId   String?  @map("assignee_id") @db.VarChar(50)

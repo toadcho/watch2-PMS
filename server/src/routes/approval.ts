@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { authenticate, JwtPayload } from '../middlewares/auth';
 import { writeAuditLog } from '../utils/auditLog';
-import { createNotification } from './notifications';
+import { createNotification, markApprovalRequestNotifsRead } from './notifications';
 
 const router = Router({ mergeParams: true });
 router.use(authenticate);
@@ -388,11 +388,108 @@ router.post('/approve/:docId', async (req: Request, res: Response) => {
       }
     }
 
+    // 승인자 본인의 관련 승인요청 알림 읽음 처리
+    if (fullDoc?.taskId) {
+      await markApprovalRequestNotifsRead(currentUser.userId, projectId, [fullDoc.taskId]);
+    }
+
     await writeAuditLog({ userId: currentUser.userId, ipAddress: req.ip, action: 'UPDATE', targetType: 'deliverable_approval', targetId: docId, changeDetail: { action: '승인', depth: targetDepth, label } });
     res.json({ success: true, message: `${label} 처리가 완료되었습니다.`, suggestedRate });
   } catch (err) {
     console.error('Approve error:', err);
     res.status(500).json({ success: false, message: '승인 처리 중 오류' });
+  }
+});
+
+// POST /api/v1/projects/:projectId/approval/approve-bulk — 일괄 승인 처리
+// Body: { docIds: number[], comment?: string }
+// 결과: { approved, failed: [{docId, reason}] }
+router.post('/approve-bulk', async (req: Request, res: Response) => {
+  try {
+    const currentUser = (req as any).user as JwtPayload;
+    const projectId = BigInt(req.params.projectId as string);
+    const { docIds, comment } = req.body as { docIds?: (number | string)[]; comment?: string };
+
+    if (!Array.isArray(docIds) || !docIds.length) {
+      res.status(400).json({ success: false, message: '승인할 산출물이 없습니다.' });
+      return;
+    }
+
+    const maxDepth = await getMaxDepth(projectId);
+    const approved: number[] = [];
+    const failed: { docId: number; reason: string }[] = [];
+    const approvedTaskIds = new Set<number>();
+
+    for (const raw of docIds) {
+      const docId = BigInt(raw);
+      try {
+        const deliverable = await prisma.deliverable.findUnique({
+          where: { docId },
+          select: { approvalDepth: true, docName: true, taskId: true },
+        });
+        if (!deliverable) { failed.push({ docId: Number(docId), reason: '산출물 없음' }); continue; }
+
+        const targetDepth = deliverable.approvalDepth + 1;
+        const approval = await prisma.deliverableApproval.findUnique({
+          where: { docId_depth: { docId, depth: targetDepth } },
+        });
+        if (!approval || approval.status !== '승인요청') {
+          failed.push({ docId: Number(docId), reason: '승인요청 상태 아님' });
+          continue;
+        }
+
+        await prisma.deliverableApproval.update({
+          where: { docId_depth: { docId, depth: targetDepth } },
+          data: { status: '승인', approverId: currentUser.userId, comment: comment || null, processedAt: new Date() },
+        });
+
+        await prisma.deliverable.update({
+          where: { docId },
+          data: { approvalDepth: targetDepth, status: targetDepth >= maxDepth ? '승인완료' : '승인완료(단계)' },
+        });
+
+        const depthInfo = await getDepthInfo(projectId, targetDepth);
+        const label = depthInfo.label;
+
+        // 태스크 담당자 알림
+        if (deliverable.taskId) {
+          const task = await prisma.wbsTask.findUnique({ where: { taskId: deliverable.taskId }, select: { assigneeId: true, taskName: true } });
+          if (task?.assigneeId && task.assigneeId !== currentUser.userId) {
+            const nextLabel = targetDepth < maxDepth ? (await getDepthInfo(projectId, targetDepth + 1)).label : null;
+            const msg = nextLabel
+              ? `${task.taskName} — ${label} 승인되었습니다. 다음 단계(${nextLabel}) 승인요청을 진행해주세요.`
+              : `${task.taskName} — ${label} 승인되었습니다. 모든 승인이 완료되었습니다.`;
+            await createNotification({
+              userId: task.assigneeId, projectId,
+              type: 'approval_done',
+              title: `[승인완료] ${deliverable.docName || ''}`,
+              message: msg,
+              link: `/projects/${Number(projectId)}/wbs?task=${Number(deliverable.taskId)}&fromApproval=1`,
+            });
+          }
+        }
+
+        await writeAuditLog({ userId: currentUser.userId, ipAddress: req.ip, action: 'UPDATE', targetType: 'deliverable_approval', targetId: docId, changeDetail: { action: '일괄승인', depth: targetDepth, label } });
+        approved.push(Number(docId));
+        if (deliverable.taskId) approvedTaskIds.add(Number(deliverable.taskId));
+      } catch (inner) {
+        console.error(`Bulk approve error docId=${docId}:`, inner);
+        failed.push({ docId: Number(docId), reason: '처리 중 오류' });
+      }
+    }
+
+    // 승인자 본인의 관련 승인요청 알림 일괄 읽음 처리
+    if (approvedTaskIds.size) {
+      await markApprovalRequestNotifsRead(currentUser.userId, projectId, Array.from(approvedTaskIds));
+    }
+
+    const msg = failed.length === 0
+      ? `${approved.length}건 승인되었습니다.`
+      : `${approved.length}건 승인, ${failed.length}건 실패`;
+    res.json({ success: true, data: { approved: approved.length, failed }, message: msg });
+  } catch (err) {
+    console.error('Approve bulk error:', err);
+    res.status(500).json({ success: false, message: '일괄승인 처리 중 오류' });
   }
 });
 
@@ -477,6 +574,11 @@ router.post('/reject/:docId', async (req: Request, res: Response) => {
           });
         }
       }
+    }
+
+    // 반려자 본인의 관련 승인요청 알림 읽음 처리 (처리 완료된 건)
+    if (fullDoc?.taskId) {
+      await markApprovalRequestNotifsRead(currentUser.userId, projectId, [fullDoc.taskId]);
     }
 
     await writeAuditLog({ userId: currentUser.userId, ipAddress: req.ip, action: 'UPDATE', targetType: 'deliverable_approval', targetId: docId, changeDetail: { action: '반려', depth: targetDepth } });

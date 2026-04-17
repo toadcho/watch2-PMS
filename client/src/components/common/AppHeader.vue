@@ -160,12 +160,20 @@ const notifTypeIcon: Record<string, string> = {
 }
 
 watch(() => authStore.myProjectId, () => loadPhases())
+
+// 외부(승인/반려 등)에서 알림 재조회를 요청할 때 사용
+function onNotifRefreshEvent() { fetchUnreadCount() }
+
 onMounted(() => {
   loadPhases()
   fetchUnreadCount()
   notifTimer = setInterval(fetchUnreadCount, 60000) // 1분마다 폴링
+  window.addEventListener('pms:notif-refresh', onNotifRefreshEvent)
 })
-onBeforeUnmount(() => { if (notifTimer) clearInterval(notifTimer) })
+onBeforeUnmount(() => {
+  if (notifTimer) clearInterval(notifTimer)
+  window.removeEventListener('pms:notif-refresh', onNotifRefreshEvent)
+})
 
 function logout() {
   authStore.clearAuth()

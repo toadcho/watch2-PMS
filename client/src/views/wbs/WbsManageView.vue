@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import MainLayout from '@/components/common/MainLayout.vue'
 import UserTreePicker from '@/components/common/UserTreePicker.vue'
 import PmsDatePicker from '@/components/common/PmsDatePicker.vue'
+import BulkApprovalDialog from '@/components/common/BulkApprovalDialog.vue'
 import { useDialog } from '@/composables/useDialog'
 const { showAlert, showConfirm, showPrompt } = useDialog()
 import { wbsService } from '@/services/wbs'
@@ -36,6 +37,7 @@ const isReadOnly = computed(() => !canEdit.value)
 
 // WBS 구조 잠금 (실적 등록 시)
 const wbsLocked = ref(false)
+const hasAnyActuals = ref(false)
 const wbsForceUnlock = ref(false)
 const canModifyStructure = computed(() => isPmsAdmin.value && (!wbsLocked.value || wbsForceUnlock.value))
 
@@ -193,6 +195,8 @@ const approvalEnabled = computed(() => (project.value as any)?.approvalEnabled |
 
 // 나에게 승인요청이 온 태스크 ID 집합
 const pendingApprovalTaskIds = ref<Set<number>>(new Set())
+const pendingApprovalList = ref<any[]>([])
+const bulkApprovalDialog = ref(false)
 
 // 현재 사용자가 태스크 담당자인지
 const isTaskAssignee = computed(() => {
@@ -304,6 +308,7 @@ async function approveDoc(doc: any) {
     const { approvalService } = await import('@/services/approval')
     const res = await approvalService.approve(projectId, doc.docId)
     const suggested = res.suggestedRate
+    window.dispatchEvent(new CustomEvent('pms:notif-refresh'))
     await showAlert(res.message)
     // 다이얼로그 새로고침
     if (actualTaskId.value) {
@@ -325,6 +330,7 @@ async function rejectDoc(doc: any) {
   try {
     const { approvalService } = await import('@/services/approval')
     const res = await approvalService.reject(projectId, doc.docId, comment)
+    window.dispatchEvent(new CustomEvent('pms:notif-refresh'))
     await showAlert(res.message)
     if (actualTaskId.value) {
       const task = flatTasks.value.find(t => t.taskId === actualTaskId.value)
@@ -516,11 +522,94 @@ async function resetActuals() {
 }
 
 
+// ── 지연 태스크 일괄 실적 등록 ──
+const batchActualDialog = ref(false)
+const batchActualMode = ref<'plan100' | 'custom'>('plan100')
+const batchActualRate = ref(100)
+const batchActualSelected = ref<Set<number>>(new Set())
+const batchActualSaving = ref(false)
+const batchBizFilter = ref('all')
+
+const delayedTasks = computed(() => {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return flatTasks.value.filter(t => {
+    if (hasChildren(t.taskId)) return false
+    if (!t.planEnd) return false
+    const pe = new Date(t.planEnd); pe.setHours(0, 0, 0, 0)
+    if (pe >= today) return false
+    if ((t as any).actualRate >= 100 && t.actualEnd) return false
+    return true
+  })
+})
+
+// depth-2 업무 목록 (필터용)
+const batchBizOptions = computed(() => {
+  const depth2 = flatTasks.value.filter(t => t.depth === 2)
+  return [
+    { title: '전체 업무', value: 'all' },
+    ...depth2.map(t => ({ title: `${(t as any).wbsCode} ${t.taskName}`, value: (t as any).wbsCode as string }))
+  ]
+})
+
+// 필터 적용된 지연 태스크
+const filteredDelayedTasks = computed(() => {
+  if (batchBizFilter.value === 'all') return delayedTasks.value
+  return delayedTasks.value.filter(t => (t as any).wbsCode?.startsWith(batchBizFilter.value + '.'))
+})
+
+function openBatchActualDialog() {
+  batchActualMode.value = 'plan100'
+  batchActualRate.value = 100
+  batchBizFilter.value = 'all'
+  batchActualSelected.value = new Set(delayedTasks.value.map(t => t.taskId))
+  batchActualDialog.value = true
+}
+
+function toggleBatchAll() {
+  const filtered = filteredDelayedTasks.value
+  const allSelected = filtered.every(t => batchActualSelected.value.has(t.taskId))
+  const newSet = new Set(batchActualSelected.value)
+  if (allSelected) {
+    filtered.forEach(t => newSet.delete(t.taskId))
+  } else {
+    filtered.forEach(t => newSet.add(t.taskId))
+  }
+  batchActualSelected.value = newSet
+}
+
+async function executeBatchActual() {
+  const selected = [...batchActualSelected.value]
+  if (!selected.length) { await showAlert('대상 태스크를 선택해주세요.'); return }
+  const rate = batchActualMode.value === 'plan100' ? 100 : batchActualRate.value
+  if (!(await showConfirm(`${selected.length}건의 지연 태스크에 실적 ${rate}%를 일괄 등록합니다.\n\n계속하시겠습니까?`))) return
+
+  batchActualSaving.value = true
+  try {
+    const { data } = await api.post(`/projects/${projectId}/wbs/batch-actuals`, {
+      taskIds: selected,
+      mode: batchActualMode.value,
+      customRate: rate,
+    })
+    if (data.success) {
+      batchActualDialog.value = false
+      await showAlert(data.message)
+      await fetchAll()
+    } else {
+      showAlert(data.message, { color: 'error' })
+    }
+  } catch (err: any) {
+    showAlert(err.response?.data?.message || '일괄 처리 실패', { color: 'error' })
+  } finally {
+    batchActualSaving.value = false
+  }
+}
+
 // 가중치 자동산정 (MD 비율)
 async function calcWeights() {
   if (!(await showConfirm('태스크 가중치를 계획MD 비율로 자동 산정합니다.\n기존 가중치가 덮어씌워집니다. 계속하시겠습니까?'))) return
   try {
-    const { data } = await api.post(`/projects/${projectId}/wbs/calc-weights`)
+    const forceUnlock = localStorage.getItem(`pms-wbs-force-unlock-${projectId}`) === '1'
+    const { data } = await api.post(`/projects/${projectId}/wbs/calc-weights`, { forceUnlock })
     if (data.success) { showAlert(data.message); fetchAll() }
   } catch (err: any) { showAlert(err.response?.data?.message || '가중치 산정 실패', { color: 'error' }) }
 }
@@ -542,7 +631,8 @@ async function runSchedule() {
   scheduling.value = true
   try {
     const mode = scheduleMode.value
-    const { data } = await api.post(`/projects/${projectId}/wbs/schedule`, { mode })
+    const forceUnlock = localStorage.getItem(`pms-wbs-force-unlock-${projectId}`) === '1'
+    const { data } = await api.post(`/projects/${projectId}/wbs/schedule`, { mode, forceUnlock })
     if (data.success) {
       scheduleResult.value = data.data
       scheduleDialog.value = false
@@ -623,7 +713,7 @@ const phases = ['분석', '설계', '구현', '시험', '이행']
 // 임포트
 const importDialog = ref(false)
 const importFile = ref<File | null>(null)
-const importClear = ref(false)
+const importClear = ref(true)
 const importResult = ref<any>(null)
 const importing = ref(false)
 
@@ -639,6 +729,8 @@ async function doImport() {
     const fd = new FormData()
     fd.append('file', importFile.value)
     fd.append('clearExisting', String(importClear.value))
+    const forceUnlock = localStorage.getItem(`pms-wbs-force-unlock-${projectId}`) === '1'
+    if (forceUnlock) fd.append('forceUnlock', 'true')
     const { data } = await api.post(`/projects/${projectId}/wbs/import`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
@@ -692,10 +784,12 @@ async function fetchAll() {
             if (a.taskId) ids.add(Number(a.taskId))
           }
           pendingApprovalTaskIds.value = ids
+          pendingApprovalList.value = pendingRes.data || []
         }
-      } catch { pendingApprovalTaskIds.value = new Set() }
+      } catch { pendingApprovalTaskIds.value = new Set(); pendingApprovalList.value = [] }
     } else {
       pendingApprovalTaskIds.value = new Set()
+      pendingApprovalList.value = []
     }
     if (projRes.success) project.value = projRes.data
     if (treeRes.success) tree.value = treeRes.data
@@ -720,8 +814,10 @@ async function fetchAll() {
     loading.value = false
     checkWeights()
     await fetchUsers()
-    // 잠금 상태 확인
-    wbsLocked.value = flatTasks.value.some((t: any) => t.actualStart || t.actualEnd || (t.actualRate && t.actualRate > 0))
+    // 잠금 상태 확인 (실적 존재 시 잠금, 단 설정에서 강제 해제 시 무시)
+    const forceUnlock = localStorage.getItem(`pms-wbs-force-unlock-${projectId}`) === '1'
+    hasAnyActuals.value = flatTasks.value.some((t: any) => t.actualStart || t.actualEnd || (t.actualRate && t.actualRate > 0))
+    wbsLocked.value = !forceUnlock && hasAnyActuals.value
     // 비관리자: 본인 담당자 자동 필터 (첫 진입 시만)
     if (!isPmsAdmin.value && userFilter.value === 'all' && authStore.user?.userId) {
       userFilter.value = authStore.user.userId
@@ -1032,30 +1128,12 @@ function getStageChildren() {
 }
 
 // 전체 계획진척률 = Σ(단계 가중치 × 단계 계획진척률)
+// 전체 계획진행률 = 루트 태스크의 progressRate (서버 calcAllProgress 결과)
 const totalProgress = computed(() => {
   if (!flatTasks.value.length) return 0
   const roots = flatTasks.value.filter(t => !t.parentTaskId)
   if (!roots.length) return 0
-
-  // 루트가 1개면 그 루트의 자식들로 가중 평균
-  if (roots.length === 1) {
-    const rootId = roots[0].taskId
-    const children = flatTasks.value.filter(t => t.parentTaskId === rootId)
-    if (!children.length) return roots[0].progressRate
-
-    const totalWeight = children.reduce((s, c) => s + ((c as any).weight || 0), 0)
-    if (totalWeight > 0) {
-      return Math.round(children.reduce((s, c) => s + c.progressRate * ((c as any).weight || 0), 0) / totalWeight * 10) / 10
-    }
-    return Math.round(children.reduce((s, c) => s + c.progressRate, 0) / children.length * 10) / 10
-  }
-
-  // 루트가 여러개면 가중 평균
-  const totalWeight = roots.reduce((s, t) => s + ((t as any).weight || 0), 0)
-  if (totalWeight > 0) {
-    return Math.round(roots.reduce((s, t) => s + t.progressRate * ((t as any).weight || 0), 0) / totalWeight * 10) / 10
-  }
-  return Math.round(roots.reduce((s, t) => s + t.progressRate, 0) / roots.length * 10) / 10
+  return roots[0].progressRate || 0
 })
 
 // 전체 실적진척률 = Σ(단계 가중치 × 단계 실적진척률)
@@ -1074,17 +1152,20 @@ const parentOptions = computed(() => {
   return flatTasks.value
     .filter(t => t.depth < 5 && t.taskId !== editId.value)
     .map(t => ({
-      title: `${'─'.repeat(t.depth - 1)} ${t.taskName}`,
-      value: t.taskId,
+      title: `${'─'.repeat(t.depth - 1)} ${(t as any).wbsCode || ''} ${t.taskName}`,
+      value: Number(t.taskId),
     }))
 })
 
+const createParentName = ref('')
 function openCreate(parentId?: number) {
   fetchUsers()
   editMode.value = false
   editId.value = null
+  const parent = parentId ? flatTasks.value.find(t => t.taskId === parentId) : null
+  createParentName.value = parent ? `${(parent as any).wbsCode || ''} ${parent.taskName}` : '(최상위)'
   form.value = {
-    wbsCode: '', taskName: '', parentTaskId: parentId || null,
+    wbsCode: '', taskName: '', parentTaskId: parentId ? Number(parentId) : null,
     phase: '', planStart: '', planEnd: '',
     baselineStart: '', baselineEnd: '',
     actualStart: '', actualEnd: '',
@@ -1109,7 +1190,7 @@ function openEdit(task: WbsTask) {
   form.value = {
     wbsCode: (task as any).wbsCode || '',
     taskName: task.taskName,
-    parentTaskId: task.parentTaskId || null,
+    parentTaskId: task.parentTaskId ? Number(task.parentTaskId) : null,
     phase: task.phase || '',
     planStart: task.planStart?.substring(0, 10) || '',
     planEnd: task.planEnd?.substring(0, 10) || '',
@@ -1136,21 +1217,11 @@ function openEdit(task: WbsTask) {
 
 async function save() {
   try {
-    // 실적 입력 시 유효성 검증
-    if (form.value.actualEnd && form.value.actualRate < 100) {
-      await showAlert('실적 진행률이 100%가 아니면 실제 종료일을 등록할 수 없습니다.', { color: 'warning' })
-      return
-    }
-    if (form.value.actualRate >= 100 && !form.value.actualEnd) {
-      await showAlert('실적 진행률이 100%입니다. 실제 종료일을 입력해주세요.', { color: 'warning' })
-      return
-    }
-    if (form.value.actualRate > 0 && !form.value.actualStart) {
-      await showAlert('실적이 입력되었습니다. 실제 시작일을 입력해주세요.', { color: 'warning' })
-      return
-    }
-
     const payload: any = { ...form.value }
+    // 실적 필드는 태스크 수정에서 제외 (실적 등록 다이얼로그에서만 처리)
+    delete payload.actualStart
+    delete payload.actualEnd
+    delete payload.actualRate
     if (!payload.phase) delete payload.phase
     if (!payload.assigneeId) delete payload.assigneeId
 
@@ -1393,7 +1464,7 @@ const depLinks = computed(() => {
 })
 
 // 컬럼 리사이즈 드래그 — colgroup의 col width를 변경
-const colWidths = ref([70, 220, 46, 46, 60, 72, 72, 72, 72, 38, 70, 70, 40, 40, 66])
+const colWidths = ref([70, 220, 46, 46, 60, 50, 72, 72, 72, 72, 38, 70, 70, 40, 40, 66])
 
 function startResize(colIdx: number, e: MouseEvent) {
   e.preventDefault()
@@ -1421,59 +1492,68 @@ function startResize(colIdx: number, e: MouseEvent) {
 // 쿼리 파라미터로 태스크 위치 이동
 const highlightWbs = ref<string | null>(null)
 
+async function handleTaskQueryNavigation() {
+  const targetWbs = route.query.task as string
+  if (!targetWbs) return
+  // taskId(숫자) 또는 wbsCode(문자열) 모두 지원
+  const isTaskId = /^\d+$/.test(targetWbs)
+  const targetTask = isTaskId
+    ? flatTasks.value.find(t => String(t.taskId) === targetWbs)
+    : flatTasks.value.find(t => t.wbsCode === targetWbs)
+  const wbsCode = targetTask?.wbsCode || targetWbs
+  highlightWbs.value = wbsCode
+
+  if (!targetTask) return
+  // depth 2 업무 찾기
+  const parts = wbsCode.split('.')
+  for (let i = parts.length; i >= 2; i--) {
+    const prefix = parts.slice(0, i).join('.')
+    const biz = flatTasks.value.find(t => t.wbsCode === prefix && t.depth === 2)
+    if (biz) { businessFilter.value = String(biz.taskId); break }
+  }
+  // 담당자 필터 해제 (승인자가 접근할 수 있도록)
+  userFilter.value = 'all'
+  // DOM 업데이트 후 스크롤
+  setTimeout(() => {
+    const el = document.querySelector(`[data-wbs="${wbsCode}"]`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, 300)
+  // 승인 역할이면 자동으로 실적 등록(승인) 다이얼로그 열기
+  // 또는 담당자가 승인완료 알림으로 접근한 경우도 자동 오픈 + 슬라이더 자동 설정
+  const fromApproval = route.query.fromApproval === '1'
+  const isAssignee = targetTask.assigneeId === authStore.user?.userId
+  if ((isApprovalRole() && !hasChildren(targetTask.taskId)) || (fromApproval && isAssignee)) {
+    setTimeout(async () => {
+      await openActualDialog(targetTask)
+      // 담당자가 알림으로 접근한 경우: 반려 / 승인완료 상황별 처리
+      if (fromApproval && isAssignee) {
+        if (hasRejectedDocs.value) {
+          // 반려 알림: 별도 슬라이더 조작 없음 (가이드는 alert 영역에서 표시)
+          actualRateGuide.value = ''
+        } else if (actualMaxRate.value > actualForm.value.actualRate) {
+          // 승인완료 알림: 상한으로 슬라이더 이동
+          actualForm.value.actualRate = actualMaxRate.value
+          actualRateGuide.value = actualMaxRate.value >= 100
+            ? `승인 완료로 실적 진행률이 100%로 설정되었습니다. 실제 종료일을 등록하고 저장해주세요.`
+            : `승인 완료로 실적 진행률이 ${actualMaxRate.value}%로 설정되었습니다. 저장 버튼을 눌러 확정하세요.`
+        }
+      }
+    }, 500)
+  }
+  // 3초 후 하이라이트 제거
+  setTimeout(() => { highlightWbs.value = null }, 4000)
+}
+
 onMounted(async () => {
   await fetchAll()
-  const targetWbs = route.query.task as string
-  if (targetWbs) {
-    // taskId(숫자) 또는 wbsCode(문자열) 모두 지원
-    const isTaskId = /^\d+$/.test(targetWbs)
-    const targetTask = isTaskId
-      ? flatTasks.value.find(t => String(t.taskId) === targetWbs)
-      : flatTasks.value.find(t => t.wbsCode === targetWbs)
-    const wbsCode = targetTask?.wbsCode || targetWbs
-    highlightWbs.value = wbsCode
+  await handleTaskQueryNavigation()
+})
 
-    if (targetTask) {
-      // depth 2 업무 찾기
-      const parts = wbsCode.split('.')
-      for (let i = parts.length; i >= 2; i--) {
-        const prefix = parts.slice(0, i).join('.')
-        const biz = flatTasks.value.find(t => t.wbsCode === prefix && t.depth === 2)
-        if (biz) { businessFilter.value = String(biz.taskId); break }
-      }
-      // 담당자 필터 해제 (승인자가 접근할 수 있도록)
-      userFilter.value = 'all'
-      // DOM 업데이트 후 스크롤
-      setTimeout(() => {
-        const el = document.querySelector(`[data-wbs="${wbsCode}"]`)
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 300)
-      // 승인 역할이면 자동으로 실적 등록(승인) 다이얼로그 열기
-      // 또는 담당자가 승인완료 알림으로 접근한 경우도 자동 오픈 + 슬라이더 자동 설정
-      const fromApproval = route.query.fromApproval === '1'
-      const isAssignee = targetTask.assigneeId === authStore.user?.userId
-      if ((isApprovalRole() && !hasChildren(targetTask.taskId)) || (fromApproval && isAssignee)) {
-        setTimeout(async () => {
-          await openActualDialog(targetTask)
-          // 담당자가 알림으로 접근한 경우: 반려 / 승인완료 상황별 처리
-          if (fromApproval && isAssignee) {
-            if (hasRejectedDocs.value) {
-              // 반려 알림: 별도 슬라이더 조작 없음 (가이드는 alert 영역에서 표시)
-              actualRateGuide.value = ''
-            } else if (actualMaxRate.value > actualForm.value.actualRate) {
-              // 승인완료 알림: 상한으로 슬라이더 이동
-              actualForm.value.actualRate = actualMaxRate.value
-              actualRateGuide.value = actualMaxRate.value >= 100
-                ? `승인 완료로 실적 진행률이 100%로 설정되었습니다. 실제 종료일을 등록하고 저장해주세요.`
-                : `승인 완료로 실적 진행률이 ${actualMaxRate.value}%로 설정되었습니다. 저장 버튼을 눌러 확정하세요.`
-            }
-          }
-        }, 500)
-      }
-      // 3초 후 하이라이트 제거
-      setTimeout(() => { highlightWbs.value = null }, 4000)
-    }
-  }
+// 같은 WBS 페이지 내에서 다른 알림(예: ?task=X&fromApproval=1 → ?task=Y&fromApproval=1)을
+// 클릭 시 route query만 바뀌고 onMounted가 재실행되지 않으므로, watch로 재실행.
+watch(() => [route.query.task, route.query.fromApproval], async ([newTask], [oldTask]) => {
+  if (!newTask || newTask === oldTask) return
+  await handleTaskQueryNavigation()
 })
 </script>
 
@@ -1515,7 +1595,31 @@ onMounted(async () => {
           <v-btn value="gantt" size="x-small"><v-icon size="x-small">mdi-chart-gantt</v-icon></v-btn>
         </v-btn-toggle>
         <v-divider vertical class="mx-1" />
-        <v-btn v-if="canModifyStructure" color="orange" variant="outlined" size="x-small" prepend-icon="mdi-calendar-clock" @click="openScheduleDialog">스케줄</v-btn>
+        <v-btn v-if="canModifyStructure" color="orange" variant="outlined" size="x-small" prepend-icon="mdi-calendar-clock" :disabled="wbsLocked" @click="openScheduleDialog">
+          스케줄
+          <v-tooltip activator="parent" location="bottom" max-width="320">
+            <div style="font-size:11px; line-height:1.5">
+              <b>스케줄 검증 / 자동 산정</b><br>
+              계약기간(프로젝트 시작/종료일)과 선후행(predecessor) 관계에 맞춰 모든 태스크의 계획 시작/종료일을 재계산합니다.<br>
+              · <b>검증</b>: 현재 일정의 충돌·범위 초과를 점검<br>
+              · <b>적용</b>: 선후행 그래프 기반으로 일정 자동 배치(영업일 기준)<br>
+              <span v-if="wbsLocked" style="color:#d32f2f">※ 실적이 등록되어 일정 변경이 잠겨 있습니다.</span>
+            </div>
+          </v-tooltip>
+        </v-btn>
+        <v-btn v-if="canModifyStructure" color="indigo" variant="outlined" size="x-small" prepend-icon="mdi-scale-balance" :disabled="wbsLocked" @click="calcWeights">
+          가중치 자동산정
+          <v-tooltip activator="parent" location="bottom" max-width="320">
+            <div style="font-size:11px; line-height:1.5">
+              <b>태스크 가중치 MD비율 자동 산정</b><br>
+              각 부모 태스크의 자식들에 대해 <b>계획MD(영업일)</b> 비율로 weight를 자동 배분합니다 (형제 합 100%).<br>
+              · 진척률 가중 평균 계산에 사용됨<br>
+              · <b>기존 가중치는 모두 덮어쓰기됨</b> — 수동 조정값이 있다면 주의<br>
+              · 균등 분배가 필요하면 모두 1로 두고 단순 평균으로 사용 가능<br>
+              <span v-if="wbsLocked" style="color:#d32f2f">※ 실적이 등록되어 가중치 변경이 잠겨 있습니다.</span>
+            </div>
+          </v-tooltip>
+        </v-btn>
         <v-btn v-if="canModifyStructure" variant="outlined" size="x-small" prepend-icon="mdi-file-upload-outline" @click="importDialog = true">엑셀 업로드</v-btn>
         <v-btn variant="outlined" size="x-small" prepend-icon="mdi-file-download-outline" @click="doExport">엑셀 다운로드</v-btn>
         <v-btn v-if="canModifyStructure" color="primary" size="x-small" prepend-icon="mdi-plus" @click="openCreate()">추가</v-btn>
@@ -1523,7 +1627,17 @@ onMounted(async () => {
           <v-icon start size="12">mdi-lock</v-icon> 구조 잠금
         </v-chip>
         <v-btn v-if="isPmsAdmin && wbsLocked && !wbsForceUnlock" size="x-small" variant="text" color="error" @click="wbsForceUnlock = true">잠금 해제</v-btn>
-        <v-btn v-if="isPmsAdmin && wbsLocked" size="x-small" variant="outlined" color="error" prepend-icon="mdi-restore" @click="resetActuals">실적 초기화</v-btn>
+        <v-btn v-if="isPmsAdmin && delayedTasks.length" size="x-small" variant="outlined" color="warning" prepend-icon="mdi-clock-alert-outline" @click="openBatchActualDialog()">
+          지연 일괄처리
+          <v-tooltip activator="parent" location="bottom" max-width="280">
+            <div style="font-size:11px">계획 종료일이 경과했으나 실적 미완료인 태스크를 일괄 처리합니다.</div>
+          </v-tooltip>
+        </v-btn>
+        <v-btn v-if="isPmsAdmin && hasAnyActuals" size="x-small" variant="outlined" color="error" prepend-icon="mdi-restore" @click="resetActuals">실적 초기화</v-btn>
+        <v-btn v-if="approvalEnabled && isApprovalRole() && pendingApprovalList.length" size="x-small" variant="outlined" color="orange-darken-2" prepend-icon="mdi-check-all" @click="bulkApprovalDialog = true">
+          승인 일괄처리
+          <v-chip size="x-small" variant="tonal" color="orange" class="ml-1">{{ pendingApprovalList.length }}</v-chip>
+        </v-btn>
       </v-col>
     </v-row>
 
@@ -1580,12 +1694,12 @@ onMounted(async () => {
       <div style="overflow-x:auto" v-if="flatTasks.length">
         <table class="wbs-table">
           <colgroup>
-            <col v-for="(w, i) in colWidths" :key="i" :style="{ width: w + 'px' }" />
+            <template v-for="(w, i) in colWidths" :key="i"><col v-if="isPmsAdmin || i !== 5" :style="{ width: w + 'px' }" /></template>
           </colgroup>
           <thead>
             <tr class="wbs-header-group">
               <th colspan="3"></th>
-              <th colspan="2">기본정보</th>
+              <th :colspan="isPmsAdmin ? 3 : 2">기본정보</th>
               <th colspan="2" class="hg-plan">계획</th>
               <th colspan="2" class="hg-actual">실제진행</th>
               <th></th>
@@ -1598,15 +1712,16 @@ onMounted(async () => {
               <th>단계<span class="col-resize" @mousedown="startResize(2, $event)"></span></th>
               <th>역할<span class="col-resize" @mousedown="startResize(3, $event)"></span></th>
               <th>담당<span class="col-resize" @mousedown="startResize(4, $event)"></span></th>
-              <th class="th-plan">시작<span class="col-resize" @mousedown="startResize(5, $event)"></span></th>
-              <th class="th-plan">종료<span class="col-resize" @mousedown="startResize(6, $event)"></span></th>
-              <th class="th-actual">시작<span class="col-resize" @mousedown="startResize(7, $event)"></span></th>
-              <th class="th-actual">종료<span class="col-resize" @mousedown="startResize(8, $event)"></span></th>
-              <th>지연<span class="col-resize" @mousedown="startResize(9, $event)"></span></th>
-              <th>계획진행<span class="col-resize" @mousedown="startResize(10, $event)"></span></th>
-              <th>실적진행<span class="col-resize" @mousedown="startResize(11, $event)"></span></th>
-              <th>선행<span class="col-resize" @mousedown="startResize(12, $event)"></span></th>
-              <th>산출물<span class="col-resize" @mousedown="startResize(13, $event)"></span></th>
+              <th v-if="isPmsAdmin">가중치<span class="col-resize" @mousedown="startResize(5, $event)"></span></th>
+              <th class="th-plan">시작<span class="col-resize" @mousedown="startResize(6, $event)"></span></th>
+              <th class="th-plan">종료<span class="col-resize" @mousedown="startResize(7, $event)"></span></th>
+              <th class="th-actual">시작<span class="col-resize" @mousedown="startResize(8, $event)"></span></th>
+              <th class="th-actual">종료<span class="col-resize" @mousedown="startResize(9, $event)"></span></th>
+              <th>지연<span class="col-resize" @mousedown="startResize(10, $event)"></span></th>
+              <th>계획진행<span class="col-resize" @mousedown="startResize(11, $event)"></span></th>
+              <th>실적진행<span class="col-resize" @mousedown="startResize(12, $event)"></span></th>
+              <th>선행<span class="col-resize" @mousedown="startResize(13, $event)"></span></th>
+              <th>산출물<span class="col-resize" @mousedown="startResize(14, $event)"></span></th>
               <th>관리</th>
             </tr>
           </thead>
@@ -1630,6 +1745,9 @@ onMounted(async () => {
               </td>
               <td class="col-xs text-truncate">{{ (task as any).taskRole || '' }}</td>
               <td class="col-sm text-truncate">{{ task.assigneeName || '' }}</td>
+              <td v-if="isPmsAdmin" class="col-xs text-center" :class="{ 'text-grey': !(task as any).weight }">
+                <template v-if="(task as any).weight != null">{{ Number((task as any).weight) }}%</template>
+              </td>
               <td class="col-date td-plan">{{ formatDate(task.planStart) }}</td>
               <td class="col-date td-plan">{{ formatDate(task.planEnd) }}</td>
               <td class="col-date td-actual">{{ formatDate(task.actualStart) }}</td>
@@ -1670,10 +1788,16 @@ onMounted(async () => {
                 </template>
               </td>
               <td class="col-act">
+                <!-- 리프 태스크: 추가/수정/실적/삭제 -->
                 <template v-if="isPmsAdmin && !hasChildren(task.taskId) && !((task as any).actualRate >= 100 && task.actualEnd)">
-                  <v-btn v-if="canModifyStructure" icon size="18" variant="text" density="compact" @click="openCreate(task.taskId)"><v-icon size="14">mdi-plus</v-icon></v-btn>
-                  <v-btn icon size="18" variant="text" density="compact" @click="openEdit(task)"><v-icon size="14">mdi-pencil</v-icon></v-btn>
+                  <v-btn v-if="canModifyStructure" icon size="18" variant="text" density="compact" @click="openCreate(task.taskId)"><v-icon size="14">mdi-plus</v-icon><v-tooltip activator="parent" location="top">하위 태스크 추가</v-tooltip></v-btn>
+                  <v-btn icon size="18" variant="text" density="compact" @click="openEdit(task)"><v-icon size="14">mdi-pencil</v-icon><v-tooltip activator="parent" location="top">태스크 수정</v-tooltip></v-btn>
+                  <v-btn icon size="18" variant="text" density="compact" color="success" @click="openActualDialog(task)"><v-icon size="14">mdi-pencil-box-outline</v-icon><v-tooltip activator="parent" location="top">실적 등록</v-tooltip></v-btn>
                   <v-btn v-if="canModifyStructure" icon size="18" variant="text" density="compact" color="error" @click="removeTask(task.taskId)"><v-icon size="14">mdi-delete</v-icon></v-btn>
+                </template>
+                <!-- 부모 태스크: 하위 추가만 -->
+                <template v-else-if="isPmsAdmin && hasChildren(task.taskId) && canModifyStructure">
+                  <v-btn icon size="18" variant="text" density="compact" @click="openCreate(task.taskId)"><v-icon size="14">mdi-plus</v-icon><v-tooltip activator="parent" location="top">하위 태스크 추가</v-tooltip></v-btn>
                 </template>
                 <template v-else-if="canEditActual(task)">
                   <v-btn size="x-small" variant="tonal" color="success" density="compact" style="min-width:24px; height:22px; padding:0 4px" @click="openActualDialog(task)">
@@ -1789,28 +1913,23 @@ onMounted(async () => {
             <span class="text-subtitle-2">기본정보</span>
             <v-chip v-if="editMode && editHasActual" size="x-small" variant="tonal" color="warning" class="ml-2">실적 등록됨 — 일부 항목 수정 불가</v-chip>
           </div>
+          <!-- 수정 모드: 읽기 전용 필드는 텍스트 표시 -->
+          <!-- 읽기 전용 정보 (WBS코드, 상위 태스크) -->
+          <div class="d-flex align-center ga-4 mb-2 pa-2" style="background:var(--pms-surface-variant,#f5f5f5); border-radius:var(--pms-radius); font-size:12px">
+            <span v-if="editMode"><span style="color:#888">WBS</span> <b>{{ form.wbsCode || '-' }}</b></span>
+            <span><span style="color:#888">상위</span> <b>{{ editMode ? (parentOptions.find(p => p.value === Number(form.parentTaskId))?.title || '(최상위)') : createParentName }}</b></span>
+          </div>
           <v-row dense>
-            <v-col cols="3">
-              <v-text-field v-model="form.wbsCode" label="WBS 코드" variant="outlined" density="compact" placeholder="자동" persistent-placeholder :disabled="editMode && editHasActual" />
+            <v-col v-if="!editMode" cols="3">
+              <v-text-field v-model="form.wbsCode" label="WBS 코드" variant="outlined" density="compact" placeholder="자동" persistent-placeholder />
             </v-col>
-            <v-col cols="9">
+            <v-col>
               <v-text-field v-model="form.taskName" variant="outlined" density="compact" :rules="[v => !!v || '필수']">
                 <template #label><span>태스크명 <span class="text-error">*</span></span></template>
               </v-text-field>
             </v-col>
           </v-row>
-          <v-row dense>
-            <v-col cols="4">
-              <v-select v-model="form.parentTaskId" :items="[{ title: '(최상위)', value: null }, ...parentOptions]" label="상위 태스크" variant="outlined" density="compact" clearable :disabled="editMode && editHasActual" />
-            </v-col>
-            <v-col cols="3">
-              <v-select v-model="form.phase" :items="phases" variant="outlined" density="compact" clearable :disabled="editMode && editHasActual">
-                <template #label><span>공정단계 <span class="text-error">*</span></span></template>
-              </v-select>
-            </v-col>
-            <v-col cols="2">
-              <v-select v-model="form.taskRole" :items="['PMSAdmin', 'PL', 'TM', 'QA', 'PM', 'PMO', 'Customer', 'Inspector']" label="역할" variant="outlined" density="compact" clearable />
-            </v-col>
+          <v-row v-if="!editMode" dense>
             <v-col cols="3">
               <UserTreePicker v-model="form.assigneeId" :members="members" label="담당자" clearable />
             </v-col>
@@ -1829,43 +1948,7 @@ onMounted(async () => {
             <v-col cols="3">
               <PmsDatePicker v-model="form.planEnd" label="계획종료일" :required="true" :disabled="editMode && (editIsParent || editHasActual)" />
             </v-col>
-            <v-col cols="3">
-              <PmsDatePicker v-model="form.actualStart" label="실제 시작일" :disabled="editMode && (editIsParent || editHasActual)" />
-            </v-col>
-            <v-col cols="3">
-              <PmsDatePicker v-model="form.actualEnd" label="실제 종료일" :disabled="editMode && (editIsParent || editHasActual)" />
-            </v-col>
           </v-row>
-
-          <!-- 3. 실적 진행율 (수정 시, 리프만) -->
-          <div v-if="editMode && !editIsParent">
-            <v-divider class="my-2" />
-            <!-- 계획 진척률 (읽기 전용) -->
-            <div class="d-flex align-center mb-2">
-              <span class="text-subtitle-2">계획 진척률</span>
-              <v-chip size="x-small" variant="tonal" color="primary" class="ml-2">{{ form.progressRate }}%</v-chip>
-            </div>
-            <v-row dense align="center" class="mb-3">
-              <v-col cols="9">
-                <v-progress-linear :model-value="form.progressRate" color="primary" height="10" rounded />
-              </v-col>
-              <v-col cols="3">
-                <v-text-field :model-value="form.progressRate" suffix="%" variant="outlined" density="compact" hide-details disabled />
-              </v-col>
-            </v-row>
-
-            <div class="text-subtitle-2 mb-2">실적</div>
-            <div v-if="editHasActual" class="text-caption text-grey mb-2">실적이 등록된 태스크입니다. 실적 변경은 실적 등록 화면에서 진행하세요.</div>
-            <div v-else-if="!form.actualStart && form.actualRate > 0" class="text-caption text-error mb-2">실제 시작일을 먼저 등록해야 실적을 입력할 수 있습니다.</div>
-            <v-row dense align="center">
-              <v-col cols="9">
-                <v-slider v-model="form.actualRate" :min="0" :max="100" :step="0.1" color="success" hide-details :disabled="editHasActual" />
-              </v-col>
-              <v-col cols="3">
-                <v-text-field v-model.number="form.actualRate" type="number" min="0" max="100" step="0.1" suffix="%" variant="outlined" density="compact" hide-details :disabled="editHasActual" />
-              </v-col>
-            </v-row>
-          </div>
 
           <!-- 4. 선후행 관계 -->
           <v-divider class="my-2" />
@@ -2180,6 +2263,69 @@ onMounted(async () => {
       </v-card>
     </v-dialog>
 
+    <!-- 지연 태스크 일괄 실적 등록 다이얼로그 -->
+    <v-dialog v-model="batchActualDialog" max-width="700" persistent>
+      <v-card class="pms-form">
+        <v-card-title class="d-flex align-center" style="font-size:13px; font-weight:600">
+          <v-icon size="18" color="warning" class="mr-2">mdi-clock-alert-outline</v-icon>지연 태스크 일괄 실적 등록
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="pa-4" style="max-height:500px; overflow-y:auto">
+          <div class="d-flex align-center ga-2 mb-3">
+            <v-chip color="warning" variant="tonal" size="small">전체 지연: {{ delayedTasks.length }}건</v-chip>
+            <v-chip color="primary" variant="tonal" size="small">선택: {{ batchActualSelected.size }}건</v-chip>
+            <v-spacer />
+            <v-select v-model="batchBizFilter" :items="batchBizOptions" item-title="title" item-value="value" variant="outlined" density="compact" hide-details style="max-width:200px; font-size:11px" />
+          </div>
+
+          <!-- 처리 방식 -->
+          <div class="mb-3 pa-2" style="background:var(--pms-surface-variant,#f5f5f5); border-radius:var(--pms-radius)">
+            <div style="font-size:11px; font-weight:600; margin-bottom:4px">처리 방식</div>
+            <v-radio-group v-model="batchActualMode" inline hide-details density="compact" class="mt-0">
+              <v-radio label="계획대비 100% (계획일 기준 완료 처리)" value="plan100" density="compact" />
+              <v-radio label="실적률 직접 입력" value="custom" density="compact" />
+            </v-radio-group>
+            <v-text-field v-if="batchActualMode === 'custom'" v-model.number="batchActualRate" type="number" min="1" max="100" step="1" suffix="%" variant="outlined" density="compact" hide-details style="max-width:120px; margin-top:8px" />
+          </div>
+
+          <!-- 전체 선택 -->
+          <div class="d-flex align-center mb-2">
+            <v-checkbox
+              :model-value="filteredDelayedTasks.length > 0 && filteredDelayedTasks.every(t => batchActualSelected.has(t.taskId))"
+              :indeterminate="filteredDelayedTasks.some(t => batchActualSelected.has(t.taskId)) && !filteredDelayedTasks.every(t => batchActualSelected.has(t.taskId))"
+              hide-details density="compact" class="mt-0 pt-0"
+              @update:model-value="toggleBatchAll()"
+            />
+            <span style="font-size:11px; font-weight:600">전체 선택 ({{ filteredDelayedTasks.length }}건)</span>
+            <v-spacer />
+            <span style="font-size:10px; color:var(--pms-text-hint)">WBS · 태스크명 · 계획종료 · 지연일</span>
+          </div>
+
+          <!-- 태스크 목록 -->
+          <div v-for="t in filteredDelayedTasks" :key="t.taskId" class="d-flex align-center py-1" style="border-bottom:1px solid var(--pms-border-light, #eee); font-size:11px">
+            <v-checkbox
+              :model-value="batchActualSelected.has(t.taskId)"
+              hide-details density="compact" class="mt-0 pt-0"
+              @update:model-value="(v: any) => { if (v) batchActualSelected.add(t.taskId); else batchActualSelected.delete(t.taskId); batchActualSelected = new Set(batchActualSelected) }"
+            />
+            <span style="width:90px; color:var(--pms-text-secondary)" class="text-truncate">{{ (t as any).wbsCode }}</span>
+            <span style="flex:1" class="text-truncate">{{ t.taskName }}</span>
+            <span style="width:70px; color:var(--pms-text-hint)">~{{ formatDate(t.planEnd) }}</span>
+            <v-chip size="x-small" color="error" variant="tonal" class="ml-1">+{{ (t as any).delayDays || '?' }}일</v-chip>
+          </div>
+          <div v-if="!filteredDelayedTasks.length" class="text-center pa-4 text-grey">{{ batchBizFilter === 'all' ? '지연 태스크가 없습니다.' : '해당 업무에 지연 태스크가 없습니다.' }}</div>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="px-4 py-2">
+          <v-spacer />
+          <v-btn variant="outlined" size="small" @click="batchActualDialog = false">취소</v-btn>
+          <v-btn color="warning" variant="flat" size="small" :disabled="!batchActualSelected.size" :loading="batchActualSaving" @click="executeBatchActual">
+            <v-icon start size="16">mdi-check-all</v-icon>일괄 적용 ({{ batchActualSelected.size }}건)
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 엑셀 업로드 다이얼로그 -->
     <v-dialog v-model="importDialog" max-width="520" persistent>
       <v-card class="pms-form">
@@ -2188,16 +2334,9 @@ onMounted(async () => {
         </v-card-title>
         <v-divider />
         <v-card-text class="pa-4" style="font-size:var(--pms-font-body)">
-          <!-- 업로드 방식 선택 -->
-          <div class="mb-3">
-            <div style="font-size:var(--pms-font-body); font-weight:600; margin-bottom:6px">업로드 방식</div>
-            <v-radio-group v-model="importClear" inline hide-details density="compact" class="mt-0">
-              <v-radio label="기존 데이터에 추가" :value="false" density="compact" />
-              <v-radio label="전체 초기화 후 업로드" :value="true" density="compact" color="error" />
-            </v-radio-group>
-            <div v-if="importClear" class="mt-1" style="font-size:11px; color:var(--pms-error)">
-              기존 WBS 데이터를 모두 삭제 후 업로드합니다. (산출물·선후행 포함)
-            </div>
+          <!-- 업로드 안내 -->
+          <div class="mb-3" style="font-size:11px; color:var(--pms-text-secondary)">
+            기존 WBS 데이터를 초기화하고 업로드합니다. 가중치는 자동 설정됩니다.
           </div>
 
           <v-divider class="mb-3" />
@@ -2229,6 +2368,14 @@ onMounted(async () => {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 일괄승인 다이얼로그 -->
+    <BulkApprovalDialog
+      v-model="bulkApprovalDialog"
+      :project-id="projectId"
+      :items="pendingApprovalList"
+      @approved="fetchAll"
+    />
   </MainLayout>
 </template>
 
